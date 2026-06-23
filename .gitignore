@@ -1,0 +1,10 @@
+node_modules/
+planogram_env/
+__pycache__/
+*.pyc
+uploads/
+reports/
+dist/
+.angular/
+database.sqlite
+.DS_Store
