@@ -6,7 +6,7 @@ Planogram is an intelligent, AI-powered computer vision platform designed to aut
 
 - **Advanced Visual Fingerprinting**: Utilizes Meta's DINOv2 self-supervised vision transformer to extract 384-dimensional semantic embeddings from product crops.
 - **HSV Color Histogram Analysis**: Adds color-based heuristics to ensure high confidence matching, distinguishing between products with similar shapes but different packaging.
-- **Intelligent Object Detection**: Powered by YOLOv11 for real-time bounding box detection of products on shelves.
+- **Intelligent Object Detection**: Powered by YOLOv8s for real-time bounding box detection of products on shelves.
 - **Hungarian Matching Algorithm**: Uses linear sum assignment to perfectly pair audit products to baseline products based on combined visual, spatial, and color similarities.
 - **Mobile-First UI with Camera Integration**: Features a stunning, glassmorphic UI built with Angular. Take photos directly from your mobile device using native HTML5 camera integration.
 - **Real-time Compliance Dashboards**: Instantly view metrics like Total Baselines, Avg Compliance, and Row-Wise breakdown stats.
@@ -15,7 +15,7 @@ Planogram is an intelligent, AI-powered computer vision platform designed to aut
 
 * **Frontend**: Angular 18, TypeScript, Tailwind-inspired custom SCSS, Lucide Icons, Glassmorphism UI
 * **Backend**: Node.js, Express.js, TypeScript, SQLite
-* **Machine Learning**: Python, PyTorch, YOLOv11 (Ultralytics), DINOv2 (Meta), OpenCV, SciPy
+* **Machine Learning**: Python, PyTorch, YOLOv8s (Ultralytics), DINOv2 (Meta), OpenCV, SciPy
 * **Architecture**: Client-Server with isolated ML microservice layer
 
 ## Project Structure
@@ -43,7 +43,7 @@ python3 -m venv planogram_env
 source planogram_env/bin/activate
 pip install torch torchvision ultralytics opencv-python scipy numpy
 ```
-*(Note: YOLOv11 weights (`yolo11n.pt`) will download automatically on first run)*
+*(Note: YOLOv8s weights (`best_model_yolov8s.pt`) must be present in the `ml-service/notebooks/test/` directory)*
 
 ### 2. Start the Backend Server
 ```bash
