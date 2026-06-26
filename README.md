@@ -130,18 +130,29 @@ sequenceDiagram
 
 ### 1. Setup the Python ML Environment
 ```bash
-cd ml-service
 python -m venv planogram_env
-planogram_env\Scripts\activate      # Windows
-# source planogram_env/bin/activate # Mac/Linux
 
-pip install torch torchvision ultralytics opencv-python scipy numpy
+# Windows
+planogram_env\Scripts\activate      
+
+# Mac/Linux
+source planogram_env/bin/activate
+
+# Install all dependencies (allows pip to fetch pre-compiled versions)
+pip install -r requirements.txt
 ```
 *(Note: YOLOv8s weights (`best_model_yolov8s.pt`) must be present in the `ml-service/notebooks/test/` directory)*
 
 ### 2. Start the Backend Server
+⚠️ **CRITICAL:** You must activate the Python virtual environment in the terminal before starting the backend, otherwise the machine learning pipeline will fail to find your installed libraries (like OpenCV and YOLO).
+
 Open a new terminal window:
 ```bash
+# First, activate the environment again in this new terminal
+planogram_env\Scripts\activate      # Windows
+# source planogram_env/bin/activate # Mac/Linux
+
+# Then start the server
 cd backend
 npm install
 npm start
