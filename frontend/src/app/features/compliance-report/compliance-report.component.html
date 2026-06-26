@@ -1,0 +1,159 @@
+<header style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px;" class="animate-fade-in">
+  <div>
+    <h2 style="margin-bottom: 4px; font-size: 1.8rem; font-weight: 700;">Compliance Report</h2>
+    <p style="margin: 0; color: var(--text-muted);">AI-Powered Shelf Execution Analytics</p>
+  </div>
+</header>
+
+<div *ngIf="currentReport" class="animate-fade-in">
+  <!-- Top Metrics Row -->
+  <div class="grid grid-cols-4" style="margin-bottom: 24px;">
+    <div class="glass-card" style="text-align: center;">
+      <div class="stat-label">Total Compliance</div>
+      <div class="stat-value" [style.color]="currentReport.compliance_score > 80 ? 'var(--status-success)' : 'var(--status-warning)'">
+        {{currentReport.compliance_score}}%
+      </div>
+      <div class="badge" [ngClass]="currentReport.compliance_score > 80 ? 'badge-success' : 'badge-warning'" style="margin-top: 8px;">
+        {{ currentReport.compliance_score > 80 ? 'Excellent' : 'Needs Review' }}
+      </div>
+    </div>
+    
+    <div class="glass-card" style="text-align: center;">
+      <div class="stat-label">Fill Rate</div>
+      <div class="stat-value" style="color: var(--accent-primary);">
+        {{currentReport.fill_rate}}%
+      </div>
+      <div class="badge badge-info" style="margin-top: 8px;">Capacity Utilization</div>
+    </div>
+    
+    <div class="glass-card" style="text-align: center;">
+      <div class="stat-label">Avg Visual Match</div>
+      <div class="stat-value" style="color: var(--status-info);">
+        {{(currentReport.comparison_report?.average_visual_similarity || 0) * 100 | number:'1.0-0'}}%
+      </div>
+      <div class="badge badge-info" style="margin-top: 8px;">DINOv2 Confidence</div>
+    </div>
+
+    <div class="glass-card" style="display: flex; flex-direction: column; justify-content: center; gap: 12px; text-align: center;">
+      <div class="stat-label" style="margin-bottom: 8px;">Export Data</div>
+      <a [href]="api.baseUrl + '/reports/' + currentReport.visual_report_path" download class="btn-primary" style="text-decoration: none;">Download Image</a>
+      <a [href]="api.baseUrl + '/reports/' + currentReport.report_path" download class="btn-outline" style="text-decoration: none;">Download JSON</a>
+    </div>
+  </div>
+
+  <!-- Live Audit Stream (Visual Comparison) -->
+  <div class="glass-card" style="margin-bottom: 24px;" *ngIf="currentReport.comparison_report">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 16px;">
+      <h3 style="margin: 0;">Live Audit Analysis</h3>
+      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+         <span class="badge badge-success">Correct: {{currentReport.comparison_report.counts.correct}}</span>
+         <span class="badge badge-warning">Misaligned: {{currentReport.comparison_report.counts.misaligned}}</span>
+         <span class="badge badge-wrong">Wrong Product: {{currentReport.comparison_report.counts.wrong}}</span>
+         <span class="badge badge-error">Missing: {{currentReport.comparison_report.counts.missing}}</span>
+         <span class="badge badge-info">Extra: {{currentReport.comparison_report.counts.extra}}</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 24px; position: relative;">
+      <!-- Baseline Side -->
+      <div style="flex: 1; position: relative; background: #000; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-light);">
+        <div style="position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); padding: 6px 12px; border-radius: 6px; z-index: 10; font-size: 0.8em; font-weight: 600; letter-spacing: 0.05em; border: 1px solid rgba(255,255,255,0.1);">REFERENCE PLANOGRAM</div>
+        <img [src]="api.baseUrl + '/uploads/baseline/' + currentReport.comparison_report.baseline_image" style="width: 100%; display: block;" />
+      </div>
+      
+      <!-- Audit Side with Glowing Boxes -->
+      <div style="flex: 1; position: relative; background: #000; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border-light);">
+        <div style="position: absolute; top: 12px; left: 12px; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); padding: 6px 12px; border-radius: 6px; z-index: 10; font-size: 0.8em; font-weight: 600; letter-spacing: 0.05em; border: 1px solid rgba(255,255,255,0.1); color: var(--accent-hover);">STORE AUDIT</div>
+        <img [src]="api.baseUrl + '/uploads/audit/' + currentReport.comparison_report.audit_image" style="width: 100%; display: block;" />
+        
+        <ng-container *ngIf="currentReport.comparison_report.image_dimensions as dims">
+          <div *ngFor="let item of currentReport.comparison_report.boxes?.correct" 
+               class="bbox bbox-correct" 
+               [ngStyle]="getBoxStyle(item.a_box, dims.width, dims.height)"
+               (mouseenter)="showBoxInfo('correct', item.identity + ' | Match Score: ' + item.combined_score)" (mouseleave)="hideBoxInfo()">
+          </div>
+          <div *ngFor="let item of currentReport.comparison_report.boxes?.misaligned" 
+               class="bbox bbox-warning" 
+               [ngStyle]="getBoxStyle(item.a_box, dims.width, dims.height)"
+               (mouseenter)="showBoxInfo('warning', 'Misaligned: ' + item.identity)" (mouseleave)="hideBoxInfo()">
+          </div>
+          <div *ngFor="let item of currentReport.comparison_report.boxes?.wrong" 
+               class="bbox bbox-wrong" 
+               [ngStyle]="getBoxStyle(item.a_box, dims.width, dims.height)"
+               (mouseenter)="showBoxInfo('wrong', 'Found ' + item.actual_identity + ' instead of ' + item.expected_identity)" (mouseleave)="hideBoxInfo()">
+          </div>
+          <div *ngFor="let item of currentReport.comparison_report.boxes?.extra" 
+               class="bbox bbox-info" 
+               [ngStyle]="getBoxStyle(item, dims.width, dims.height)"
+               (mouseenter)="showBoxInfo('info', 'Extra: ' + item.identity)" (mouseleave)="hideBoxInfo()">
+          </div>
+        </ng-container>
+      </div>
+    </div>
+    
+    <div style="margin-top: 20px; padding: 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-md); text-align: center; min-height: 54px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+      <ng-container *ngIf="hoveredBoxInfo">
+        <svg *ngIf="hoveredBoxInfo.type === 'correct'" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--status-success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        <svg *ngIf="hoveredBoxInfo.type === 'warning'" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--status-warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+        <svg *ngIf="hoveredBoxInfo.type === 'wrong'" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--status-wrong)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+        <svg *ngIf="hoveredBoxInfo.type === 'info'" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--status-info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+        <strong style="font-size: 1.1em; color: var(--text-primary); letter-spacing: 0.02em;">
+          {{ hoveredBoxInfo.type === 'correct' ? 'Correct: ' : '' }}
+          {{ hoveredBoxInfo.type === 'wrong' ? 'Wrong Product: ' : '' }}
+          {{ hoveredBoxInfo.text }}
+        </strong>
+      </ng-container>
+      <span *ngIf="!hoveredBoxInfo" style="color: var(--text-muted); font-style: italic;">Hover over a glowing bounding box in the audit image to inspect AI confidence scores.</span>
+    </div>
+  </div>
+
+  <!-- Row-Wise Detail Table -->
+  <div class="glass-card" *ngIf="currentReport.comparison_report?.row_wise_compliance?.length">
+    <h3 style="margin-bottom: 20px;">Row-wise Execution Detail</h3>
+    <div style="overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border-light);">
+      <table class="premium-table">
+        <thead>
+          <tr style="background: rgba(0,0,0,0.2);">
+            <th>Shelf Row</th>
+            <th style="text-align: center;">Correct</th>
+            <th style="text-align: center;">Wrong</th>
+            <th style="text-align: center;">Misaligned</th>
+            <th style="text-align: center;">Missing</th>
+            <th style="text-align: center;">Extra</th>
+            <th style="text-align: right;">Compliance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let row of currentReport.comparison_report.row_wise_compliance">
+            <td style="font-weight: 600;">Level {{row.row}}</td>
+            <td style="text-align: center;">
+              <span *ngIf="row.correct > 0" class="badge badge-success">{{row.correct}}</span>
+              <span *ngIf="row.correct === 0" style="color: var(--text-muted)">-</span>
+            </td>
+            <td style="text-align: center;">
+              <span *ngIf="row.wrong > 0" class="badge badge-wrong">{{row.wrong}}</span>
+              <span *ngIf="row.wrong === 0" style="color: var(--text-muted)">-</span>
+            </td>
+            <td style="text-align: center;">
+              <span *ngIf="row.misaligned > 0" class="badge badge-warning">{{row.misaligned}}</span>
+              <span *ngIf="row.misaligned === 0" style="color: var(--text-muted)">-</span>
+            </td>
+            <td style="text-align: center;">
+              <span *ngIf="row.missing > 0" class="badge badge-error">{{row.missing}}</span>
+              <span *ngIf="row.missing === 0" style="color: var(--text-muted)">-</span>
+            </td>
+            <td style="text-align: center;">
+              <span *ngIf="row.extra > 0" class="badge badge-info">{{row.extra}}</span>
+              <span *ngIf="row.extra === 0" style="color: var(--text-muted)">-</span>
+            </td>
+            <td style="text-align: right;">
+              <span class="badge" [ngClass]="row.compliance > 80 ? 'badge-success' : row.compliance > 50 ? 'badge-warning' : 'badge-error'" style="font-size: 0.9em; padding: 4px 12px;">
+                {{row.compliance}}%
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
