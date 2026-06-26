@@ -1,9 +1,14 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
 
 const pythonScriptPath = path.resolve(__dirname, '../../../ml-service/audit_engine.py');
-// Use the project's virtual environment python if available
-const pythonExecutable = path.resolve(__dirname, '../../../planogram_env/bin/python3');
+// Use the project's virtual environment python if available, handling Windows vs Mac/Linux
+const isWindows = os.platform() === 'win32';
+const pythonExecutable = path.resolve(
+  __dirname, 
+  isWindows ? '../../../planogram_env/Scripts/python.exe' : '../../../planogram_env/bin/python3'
+);
 
 export interface MLBaselineResult {
   shelf_capacity: number;
