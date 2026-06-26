@@ -56,7 +56,8 @@ router.post('/baseline/upload', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image provided' });
     }
 
-    const imagePath = req.file.path;
+    // Convert Windows backslashes to forward slashes for web compatibility
+    const imagePath = req.file.path.replace(/\\/g, '/');
     const name = req.body.name || '';
 
     // Run ML Baseline detection
@@ -105,7 +106,8 @@ router.post('/audit/compare', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'baselineId is required' });
     }
 
-    const auditImagePath = req.file.path;
+    // Convert Windows backslashes to forward slashes for web compatibility
+    const auditImagePath = req.file.path.replace(/\\/g, '/');
 
     // Fetch baseline from DB
     db.get(`SELECT * FROM baselines WHERE id = ?`, [baselineId], async (err, baseline: any) => {
@@ -122,6 +124,10 @@ router.post('/audit/compare', upload.single('image'), async (req, res) => {
       if (mlResult.error) {
         return res.status(500).json({ error: mlResult.error });
       }
+
+      // Convert Windows backslashes to forward slashes for web compatibility
+      if (mlResult.report_path) mlResult.report_path = mlResult.report_path.replace(/\\/g, '/');
+      if (mlResult.visual_report_path) mlResult.visual_report_path = mlResult.visual_report_path.replace(/\\/g, '/');
 
       // Save Audit to DB
       db.run(
