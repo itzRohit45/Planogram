@@ -68,9 +68,11 @@ graph TD
 
 <div align="center">
   <img src="docs/images/report.png" alt="Compliance Report" width="800"/>
+  <br/><br/>
+  <img src="docs/images/row_wise.png" alt="Row-wise Breakdown" width="800"/>
 </div>
 
-When an auditor takes a picture of a store shelf, the image is sent through a rigorous ML pipeline to generate the interactive bounding boxes you see in the UI.
+When an auditor takes a picture of a store shelf, the image is sent through a rigorous ML pipeline to generate the interactive bounding boxes and row-by-row execution details you see in the UI.
 
 ```mermaid
 sequenceDiagram
