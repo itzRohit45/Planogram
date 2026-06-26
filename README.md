@@ -68,7 +68,11 @@ graph TD
 
 <div align="center">
   <img src="docs/images/report.png" alt="Compliance Report" width="800"/>
-  <br/><br/>
+</div>
+
+### Row-Wise Execution Detail
+
+<div align="center">
   <img src="docs/images/row_wise.png" alt="Row-wise Breakdown" width="800"/>
 </div>
 
