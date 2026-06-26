@@ -1,7 +1,8 @@
-numpy==1.26.4
-torch==2.1.2
-torchvision==0.16.2
-ultralytics==8.1.0
-opencv-python-headless==4.9.0.80
-transformers==4.38.1
-pillow==10.2.0
+numpy
+torch
+torchvision
+ultralytics
+opencv-python-headless
+transformers
+pillow
+scipy
