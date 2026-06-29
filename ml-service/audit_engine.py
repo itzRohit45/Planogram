@@ -15,9 +15,7 @@ from PIL import Image
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 
-# ──────────────────────────────────────────────────────────────
 # 1. Model Initialization
-# ──────────────────────────────────────────────────────────────
 
 # YOLO for object detection
 model_path = os.path.join(os.path.dirname(__file__), 'notebooks/test/best_model_yolov8s.pt')
@@ -28,12 +26,9 @@ model = YOLO(model_path)
 # Self-supervised — trained to find fine-grained visual differences
 # Note: Using CPU because PyTorch 2.1.x MPS lacks some DINOv2 ops (upsample_bicubic2d)
 device = torch.device('cpu')
-print(f"[DEBUG] Loading DINOv2 model on device: {device}", file=sys.stderr)
-
 feature_extractor = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14', verbose=False)
 feature_extractor = feature_extractor.to(device)
 feature_extractor.eval()
-print(f"[DEBUG] DINOv2 loaded successfully (384-d embeddings)", file=sys.stderr)
 
 # DINOv2 preprocessing (different from ResNet — uses 14×14 patch size, expects 224×224)
 dino_preprocess = transforms.Compose([
@@ -43,9 +38,7 @@ dino_preprocess = transforms.Compose([
 ])
 
 
-# ──────────────────────────────────────────────────────────────
 # 2. Product Detection with Crop Extraction & Feature Extraction
-# ──────────────────────────────────────────────────────────────
 
 def detect_products(image_path, save_crops=False, crop_dir=None):
     """
@@ -123,17 +116,13 @@ def detect_products(image_path, save_crops=False, crop_dir=None):
             features = feature_extractor(batch)
             features = F.normalize(features, p=2, dim=1)
 
-        print(f"[DEBUG] Generated {len(crops_tensor)} DINOv2 Fingerprints of shape: {features.shape}", file=sys.stderr)
-
         for i in range(len(boxes)):
             boxes[i]['fingerprint'] = features[i]
 
     return img, boxes
 
 
-# ──────────────────────────────────────────────────────────────
 # 3. Shelf Row Grouping
-# ──────────────────────────────────────────────────────────────
 
 def group_into_shelves(boxes, height_tolerance):
     """Group bounding boxes into shelf rows using y-center clustering."""
@@ -162,9 +151,7 @@ def group_into_shelves(boxes, height_tolerance):
     return shelves
 
 
-# ──────────────────────────────────────────────────────────────
 # 4. Hungarian Matching with Combined Scoring
-# ──────────────────────────────────────────────────────────────
 
 def compute_combined_score(b, a, w_baseline, w_audit):
     """
@@ -269,17 +256,11 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
         visual_sims.append(details['visual'])
         spatial_sims.append(details['spatial'])
 
-        print(f"[DEBUG] Row match: B[{bi}] ↔ A[{ai}] | "
-              f"Final={details['final']:.4f} "
-              f"(Spatial={details['spatial']:.4f}, Visual={details['visual']:.4f}, Color={details['color']:.4f})",
-              file=sys.stderr)
-
         if details['final'] >= 0.70:
             # Check spatial shift for misalignment
             b_rel_x = b['cx'] / w_baseline
             a_rel_x = a['cx'] / w_audit
             if abs(b_rel_x - a_rel_x) > 0.15:
-                print(f"[DEBUG]   → Misaligned (position shifted >15%)", file=sys.stderr)
                 misaligned.append({
                     'identity': b['identity'],
                     'expected_cx': b['cx'], 'expected_cy': b['cy'],
@@ -288,14 +269,12 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
                     'b_box': b, 'a_box': a
                 })
             else:
-                print(f"[DEBUG]   → Correct", file=sys.stderr)
                 correct.append({
                     'identity': b['identity'],
                     'combined_score': round(details['final'], 4),
                     'b_box': b, 'a_box': a
                 })
         else:
-            print(f"[DEBUG]   → Wrong Product (score below 0.70)", file=sys.stderr)
             wrong.append({
                 'expected_identity': b['identity'],
                 'actual_identity': 'Visually Different',
@@ -310,13 +289,11 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
     # Unmatched baseline → missing
     for i in range(n_baseline):
         if i not in matched_b:
-            print(f"[DEBUG]   → Missing: B[{i}] has no match", file=sys.stderr)
             missing.append(b_shelf[i])
 
     # Unmatched audit → extra
     for j in range(n_audit):
         if j not in matched_a:
-            print(f"[DEBUG]   → Extra: A[{j}] has no match", file=sys.stderr)
             extra.append(a_shelf[j])
 
     avg_visual = sum(visual_sims) / len(visual_sims) if visual_sims else 0.0
@@ -325,9 +302,7 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
     return correct, misaligned, wrong, missing, extra, avg_visual, avg_spatial
 
 
-# ──────────────────────────────────────────────────────────────
 # 5. Baseline Mode
-# ──────────────────────────────────────────────────────────────
 
 def run_baseline(image_path):
     try:
@@ -343,9 +318,7 @@ def run_baseline(image_path):
         sys.exit(1)
 
 
-# ──────────────────────────────────────────────────────────────
 # 6. Audit Mode — Full Pipeline
-# ──────────────────────────────────────────────────────────────
 
 def run_audit(baseline_path, audit_path, baseline_capacity):
     try:
@@ -358,9 +331,7 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
         a_crop_dir = os.path.join(reports_dir, f"crops/audit_{timestamp}")
 
         # Detect products with crop saving
-        print(f"[DEBUG] === Detecting baseline products ===", file=sys.stderr)
         b_img, b_boxes = detect_products(baseline_path, save_crops=True, crop_dir=b_crop_dir)
-        print(f"[DEBUG] === Detecting audit products ===", file=sys.stderr)
         a_img, a_boxes = detect_products(audit_path, save_crops=True, crop_dir=a_crop_dir)
 
         h1, w1 = b_img.shape[:2]
@@ -370,9 +341,6 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
         avg_h = sum(b['h'] for b in b_boxes) / len(b_boxes) if b_boxes else 100
         b_shelves = group_into_shelves(b_boxes, avg_h * 0.6)
         a_shelves = group_into_shelves(a_boxes, avg_h * 0.6)
-
-        print(f"[DEBUG] Baseline: {len(b_boxes)} products in {len(b_shelves)} rows", file=sys.stderr)
-        print(f"[DEBUG] Audit: {len(a_boxes)} products in {len(a_shelves)} rows", file=sys.stderr)
 
         # Results accumulators
         all_correct = []
@@ -387,8 +355,6 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
         # Match shelf rows (pair by index)
         max_shelves = max(len(b_shelves), len(a_shelves))
         for row_idx in range(max_shelves):
-            print(f"\n[DEBUG] === Processing Row {row_idx + 1} ===", file=sys.stderr)
-
             if row_idx >= len(b_shelves):
                 # Entire audit row is extra
                 for a in a_shelves[row_idx]:
@@ -447,16 +413,7 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
         avg_visual_similarity = sum(all_visual_sims) / len(all_visual_sims) if all_visual_sims else 0.0
         avg_spatial_similarity = sum(all_spatial_sims) / len(all_spatial_sims) if all_spatial_sims else 0.0
 
-        print(f"\n[DEBUG] === FINAL RESULTS ===", file=sys.stderr)
-        print(f"[DEBUG] Correct: {len(all_correct)}, Wrong: {len(all_wrong)}, "
-              f"Misaligned: {len(all_misaligned)}, Missing: {len(all_missing)}, Extra: {len(all_extra)}", file=sys.stderr)
-        print(f"[DEBUG] Compliance: {compliance_score:.1f}%, Fill Rate: {fill_rate:.1f}%", file=sys.stderr)
-        print(f"[DEBUG] Avg Visual Similarity: {avg_visual_similarity:.4f}", file=sys.stderr)
-        print(f"[DEBUG] Avg Spatial Similarity: {avg_spatial_similarity:.4f}", file=sys.stderr)
-
-        # ──────────────────────────────────────────────────────
         # Create Composite Visualization
-        # ──────────────────────────────────────────────────────
         max_h = max(h1, h2)
         composite = np.zeros((max_h, w1 + w2, 3), dtype=np.uint8)
         composite[:h1, :w1, :] = b_img
@@ -502,9 +459,7 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
         visual_path = os.path.join(reports_dir, visual_filename)
         cv2.imwrite(visual_path, composite, [cv2.IMWRITE_PNG_COMPRESSION, 1])
 
-        # ──────────────────────────────────────────────────────
         # Clean up non-serializable data before JSON
-        # ──────────────────────────────────────────────────────
         def clean_box(box):
             """Remove tensor and numpy fields from a box dict."""
             for key in ['fingerprint', 'color_hist']:
@@ -517,9 +472,7 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
                 if 'b_box' in p: clean_box(p['b_box'])
                 if 'a_box' in p: clean_box(p['a_box'])
 
-        # ──────────────────────────────────────────────────────
         # Build JSON Report
-        # ──────────────────────────────────────────────────────
         report_data = {
             "audit_timestamp": timestamp,
             "baseline_image": os.path.basename(baseline_path),
@@ -568,9 +521,7 @@ def run_audit(baseline_path, audit_path, baseline_capacity):
         sys.exit(1)
 
 
-# ──────────────────────────────────────────────────────────────
 # 7. CLI Entry Point
-# ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Shelf Compliance Audit Engine v2 (DINOv2 + Hungarian)")
