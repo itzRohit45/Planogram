@@ -5,49 +5,88 @@ import cv2
 import numpy as np
 import os
 import math
+import sqlite3
 from datetime import datetime
 from ultralytics import YOLO
 
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
+import warnings
+
+# Suppress annoying xFormers and TypedStorage warnings from DINOv2
+warnings.filterwarnings("ignore", category=UserWarning)
 from PIL import Image
 import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 
 # 1. Model Initialization
-
-# YOLO for object detection
 model_path = os.path.join(os.path.dirname(__file__), 'notebooks/test/best_model_yolov8s.pt')
 model = YOLO(model_path)
 
-# DINOv2 for Visual Fingerprinting (replaces ResNet18)
-# dinov2_vits14: 22M params, produces 384-d embeddings
-# Self-supervised — trained to find fine-grained visual differences
-# Note: Using CPU because PyTorch 2.1.x MPS lacks some DINOv2 ops (upsample_bicubic2d)
 device = torch.device('cpu')
-feature_extractor = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14', verbose=False)
+feature_extractor = torch.hub.load('facebookresearch/dinov2', 'dinov2_vitb14', verbose=False)
 feature_extractor = feature_extractor.to(device)
 feature_extractor.eval()
 
-# DINOv2 preprocessing (different from ResNet — uses 14×14 patch size, expects 224×224)
 dino_preprocess = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
 ])
 
+def load_catalog():
+    db_path = os.path.join(os.path.dirname(__file__), '../backend/database.sqlite')
+    catalog = []
+    if os.path.exists(db_path):
+        try:
+            conn = sqlite3.connect(db_path)
+            c = conn.cursor()
+            c.execute("SELECT name, fingerprint, color_hist FROM products")
+            for row in c.fetchall():
+                name = row[0]
+                fp = json.loads(row[1])
+                ch = json.loads(row[2]) if row[2] else None
+                
+                catalog.append({
+                    'name': name,
+                    'fingerprint': torch.tensor(fp, dtype=torch.float32).to(device),
+                    'color_hist': np.array(ch, dtype=np.float32) if ch else None
+                })
+            conn.close()
+        except Exception as e:
+            print(f"[DEBUG] Failed to load catalog: {e}", file=sys.stderr)
+    return catalog
 
-# 2. Product Detection with Crop Extraction & Feature Extraction
+def match_product(fingerprint, color_hist, catalog):
+    best_name = "Unknown Product"
+    best_score = -1.0
+    scores = {}
+    
+    for p in catalog:
+        dino_score = F.cosine_similarity(fingerprint.unsqueeze(0), p['fingerprint'].unsqueeze(0)).item()
+        
+        if color_hist is not None and p.get('color_hist') is not None:
+            # Correlation
+            corr = cv2.compareHist(color_hist, p['color_hist'], cv2.HISTCMP_CORREL)
+            color_score = max(0.0, corr)
+            # Lays vs Kurkure distinction needs strong color matching, but DINOv2 also is good.
+            score = (dino_score * 0.7) + (color_score * 0.3)
+        else:
+            score = dino_score
+            
+        scores[p['name']] = round(score, 4)
+        if score > best_score:
+            best_score = score
+            best_name = p['name']
+            
+    print(f"[DEBUG] Scores: {scores} => Chose: {best_name}", file=sys.stderr)
+    
+    if best_score >= 0.60:
+        return best_name, scores
+    return "Unknown Product", scores
 
-def detect_products(image_path, save_crops=False, crop_dir=None):
-    """
-    Detect products using YOLO, then for each detection:
-    - Crop the product from the original image
-    - Compute an HSV color histogram (8×8×8 bins)
-    - Extract a 384-d DINOv2 embedding
-    - Optionally save the crop image to disk
-    """
+def detect_products(image_path, catalog, save_crops=False, crop_dir=None):
     img = cv2.imread(image_path)
     if img is None:
         raise ValueError(f"Failed to load image: {image_path}")
@@ -64,28 +103,21 @@ def detect_products(image_path, save_crops=False, crop_dir=None):
             cls_name = model.names[cls_id]
 
             x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
-
-            # Clamp to image bounds
             cx1, cy1 = max(0, x1), max(0, y1)
             cx2, cy2 = min(w_img, x2), min(h_img, y2)
 
-            # Compute color histogram and DINOv2 tensor
             if cx2 > cx1 and cy2 > cy1:
                 crop_bgr = img[cy1:cy2, cx1:cx2]
-
-                # HSV Color Histogram (8×8×8 bins)
                 hsv_crop = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2HSV)
                 hist = cv2.calcHist([hsv_crop], [0, 1, 2], None, [8, 8, 8], [0, 180, 0, 256, 0, 256])
                 cv2.normalize(hist, hist)
                 color_hist = hist.flatten()
 
-                # DINOv2 tensor preparation
                 crop_rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
                 pil_img = Image.fromarray(crop_rgb)
                 tensor_img = dino_preprocess(pil_img)
                 crops_tensor.append(tensor_img)
 
-                # Save crop if requested
                 crop_path = None
                 if save_crops and crop_dir:
                     os.makedirs(crop_dir, exist_ok=True)
@@ -98,18 +130,16 @@ def detect_products(image_path, save_crops=False, crop_dir=None):
                 crop_path = None
 
             boxes.append({
-                'identity': cls_name,
                 'x1': x1, 'y1': y1,
                 'x2': x2, 'y2': y2,
                 'w': x2 - x1,
                 'h': y2 - y1,
                 'cx': int((x1 + x2) / 2),
                 'cy': int((y1 + y2) / 2),
-                'color_hist': color_hist,  # numpy array
+                'color_hist': color_hist,
                 'crop_path': crop_path
             })
 
-    # Batch DINOv2 inference
     if crops_tensor:
         batch = torch.stack(crops_tensor).to(device)
         with torch.no_grad():
@@ -117,23 +147,22 @@ def detect_products(image_path, save_crops=False, crop_dir=None):
             features = F.normalize(features, p=2, dim=1)
 
         for i in range(len(boxes)):
-            boxes[i]['fingerprint'] = features[i]
+            fp = features[i]
+            ch = boxes[i]['color_hist']
+            identity, scores = match_product(fp, ch, catalog)
+            boxes[i]['identity'] = identity
+            boxes[i]['scores'] = scores
+            boxes[i]['fingerprint'] = fp
 
-    return img, boxes
+    return boxes, w_img, h_img
 
-
-# 3. Shelf Row Grouping
-
-def group_into_shelves(boxes, height_tolerance):
-    """Group bounding boxes into shelf rows using y-center clustering."""
+def build_shelves(boxes, height_tolerance=50):
     if not boxes:
         return []
-
     sorted_boxes = sorted(boxes, key=lambda x: x['cy'])
     shelves = []
     current_shelf = [sorted_boxes[0]]
     current_cy = sorted_boxes[0]['cy']
-
     for box in sorted_boxes[1:]:
         if abs(box['cy'] - current_cy) < height_tolerance:
             current_shelf.append(box)
@@ -143,70 +172,31 @@ def group_into_shelves(boxes, height_tolerance):
             current_shelf = [box]
             current_cy = box['cy']
     shelves.append(current_shelf)
-
-    # Sort each shelf left-to-right
     for shelf in shelves:
         shelf.sort(key=lambda x: x['cx'])
-
     return shelves
 
-
-# 4. Hungarian Matching with Combined Scoring
-
 def compute_combined_score(b, a, w_baseline, w_audit):
-    """
-    Compute a combined similarity score between a baseline box and an audit box.
-    
-    final_score = 0.3 × spatial + 0.5 × visual + 0.2 × color
-    
-    - spatial: Based on relative x-position within the image width
-    - visual: Cosine similarity of DINOv2 384-d embeddings
-    - color: HSV histogram correlation
-    """
-    # Spatial similarity (relative x-position within image)
     b_rel_x = b['cx'] / w_baseline
     a_rel_x = a['cx'] / w_audit
-    spatial_sim = max(0.0, 1.0 - abs(b_rel_x - a_rel_x) * 3.0)  # Scale: 33% shift → 0 similarity
+    spatial_sim = max(0.0, 1.0 - abs(b_rel_x - a_rel_x) * 3.0)
 
-    # Visual similarity (DINOv2 cosine similarity)
     visual_sim = 0.0
     if 'fingerprint' in b and 'fingerprint' in a:
-        visual_sim = F.cosine_similarity(
-            b['fingerprint'].unsqueeze(0),
-            a['fingerprint'].unsqueeze(0)
-        ).item()
+        visual_sim = F.cosine_similarity(b['fingerprint'].unsqueeze(0), a['fingerprint'].unsqueeze(0)).item()
         visual_sim = max(0.0, visual_sim)
 
-    # Color similarity (HSV histogram correlation)
     color_sim = 0.0
-    if 'color_hist' in b and 'color_hist' in a:
-        h1 = np.array(b['color_hist'], dtype=np.float32)
-        h2 = np.array(a['color_hist'], dtype=np.float32)
-        color_sim = cv2.compareHist(h1, h2, cv2.HISTCMP_CORREL)
-        color_sim = max(0.0, color_sim)
+    if b.get('color_hist') is not None and a.get('color_hist') is not None:
+        corr = cv2.compareHist(b['color_hist'], a['color_hist'], cv2.HISTCMP_CORREL)
+        color_sim = max(0.0, corr)
 
-    # Weighted combination
-    final_score = 0.3 * spatial_sim + 0.5 * visual_sim + 0.2 * color_sim
-
+    final_score = (0.3 * spatial_sim) + (0.5 * visual_sim) + (0.2 * color_sim)
     return final_score, spatial_sim, visual_sim, color_sim
 
-
 def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
-    """
-    Match products between a baseline shelf row and an audit shelf row
-    using the Hungarian algorithm with combined scoring.
-    
-    Returns:
-        correct, misaligned, wrong, missing, extra — lists of product dicts
-        avg_visual_sim, avg_spatial_sim — averages for this row
-    """
-    correct = []
-    misaligned = []
-    wrong = []
-    missing = []
-    extra = []
-    visual_sims = []
-    spatial_sims = []
+    correct, misaligned, wrong, missing, extra = [], [], [], [], []
+    visual_sims, spatial_sims = [], []
 
     n_baseline = len(b_shelf)
     n_audit = len(a_shelf)
@@ -214,16 +204,23 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
     if n_baseline == 0:
         # All audit products are extra
         for a in a_shelf:
-            extra.append(a)
+            extra.append({
+                'identity': a['identity'],
+                'cx': a['cx'], 'cy': a['cy'],
+                'a_box': a
+            })
         return correct, misaligned, wrong, missing, extra, 0.0, 0.0
 
     if n_audit == 0:
         # All baseline products are missing
         for b in b_shelf:
-            missing.append(b)
+            missing.append({
+                'identity': b['identity'],
+                'cx': b['cx'], 'cy': b['cy'],
+                'b_box': b
+            })
         return correct, misaligned, wrong, missing, extra, 0.0, 0.0
 
-    # Build cost matrix (N_baseline × N_audit)
     score_matrix = np.zeros((n_baseline, n_audit))
     detail_matrix = [[None] * n_audit for _ in range(n_baseline)]
 
@@ -231,19 +228,12 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
         for j, a in enumerate(a_shelf):
             final, spatial, visual, color = compute_combined_score(b, a, w_baseline, w_audit)
             score_matrix[i][j] = final
-            detail_matrix[i][j] = {
-                'final': final,
-                'spatial': spatial,
-                'visual': visual,
-                'color': color
-            }
+            detail_matrix[i][j] = {'final': final, 'spatial': spatial, 'visual': visual, 'color': color}
 
-    # Hungarian assignment (minimize cost, so use 1 - score)
     cost_matrix = 1.0 - score_matrix
     row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
-    matched_b = set()
-    matched_a = set()
+    matched_b, matched_a = set(), set()
 
     for bi, ai in zip(row_indices, col_indices):
         b = b_shelf[bi]
@@ -255,276 +245,253 @@ def match_shelf_hungarian(b_shelf, a_shelf, w_baseline, w_audit):
 
         visual_sims.append(details['visual'])
         spatial_sims.append(details['spatial'])
-
-        if details['final'] >= 0.70:
-            # Check spatial shift for misalignment
-            b_rel_x = b['cx'] / w_baseline
-            a_rel_x = a['cx'] / w_audit
-            if abs(b_rel_x - a_rel_x) > 0.15:
-                misaligned.append({
+        
+        if b['identity'] == a['identity'] and b['identity'] != "Unknown Product":
+             a['match_score'] = details['final']
+             if details['spatial'] < 0.60:
+                 misaligned.append({
                     'identity': b['identity'],
                     'expected_cx': b['cx'], 'expected_cy': b['cy'],
                     'actual_cx': a['cx'], 'actual_cy': a['cy'],
                     'combined_score': round(details['final'], 4),
                     'b_box': b, 'a_box': a
-                })
-            else:
-                correct.append({
+                 })
+             else:
+                 correct.append({
                     'identity': b['identity'],
                     'combined_score': round(details['final'], 4),
                     'b_box': b, 'a_box': a
-                })
+                 })
         else:
-            wrong.append({
-                'expected_identity': b['identity'],
-                'actual_identity': 'Visually Different',
-                'cx': b['cx'], 'cy': b['cy'],
-                'actual_cx': a['cx'], 'actual_cy': a['cy'],
-                'combined_score': round(details['final'], 4),
-                'visual_similarity': round(details['visual'], 4),
-                'color_similarity': round(details['color'], 4),
-                'b_box': b, 'a_box': a
-            })
+             if details['final'] >= 0.70:
+                 a['match_score'] = details['final']
+                 if details['spatial'] < 0.60:
+                     misaligned.append({
+                        'identity': b['identity'],
+                        'expected_cx': b['cx'], 'expected_cy': b['cy'],
+                        'actual_cx': a['cx'], 'actual_cy': a['cy'],
+                        'combined_score': round(details['final'], 4),
+                        'b_box': b, 'a_box': a
+                     })
+                 else:
+                     correct.append({
+                        'identity': b['identity'],
+                        'combined_score': round(details['final'], 4),
+                        'b_box': b, 'a_box': a
+                     })
+             elif details['spatial'] > 0.60 and details['final'] < 0.70:
+                 wrong.append({
+                    'expected_identity': b['identity'],
+                    'actual_identity': a['identity'],
+                    'cx': b['cx'], 'cy': b['cy'],
+                    'actual_cx': a['cx'], 'actual_cy': a['cy'],
+                    'combined_score': round(details['final'], 4),
+                    'b_box': b, 'a_box': a
+                 })
+             else:
+                 extra.append({
+                    'identity': a['identity'],
+                    'a_box': a
+                 })
+                 matched_b.remove(bi)
 
-    # Unmatched baseline → missing
     for i in range(n_baseline):
         if i not in matched_b:
-            missing.append(b_shelf[i])
-
-    # Unmatched audit → extra
+            missing.append({
+                'identity': b_shelf[i]['identity'],
+                'b_box': b_shelf[i]
+            })
+            
     for j in range(n_audit):
         if j not in matched_a:
-            extra.append(a_shelf[j])
+            extra.append({
+                'identity': a_shelf[j]['identity'],
+                'cx': a_shelf[j]['cx'], 'cy': a_shelf[j]['cy'],
+                'a_box': a_shelf[j]
+            })
+
+    avg_v = sum(visual_sims) / len(visual_sims) if visual_sims else 0.0
+    avg_s = sum(spatial_sims) / len(spatial_sims) if spatial_sims else 0.0
+
+    return correct, misaligned, wrong, missing, extra, avg_v, avg_s
+
+def process_audit(baseline_path, audit_path, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    catalog = load_catalog()
+
+    b_boxes, w_b, h_b = detect_products(baseline_path, catalog, save_crops=False)
+    a_boxes, w_a, h_a = detect_products(audit_path, catalog, save_crops=True, crop_dir=os.path.join(output_dir, 'crops'))
+
+    avg_h = sum(b['h'] for b in b_boxes) / len(b_boxes) if b_boxes else 100
+    b_shelves = build_shelves(b_boxes, height_tolerance=avg_h * 0.6)
+    a_shelves = build_shelves(a_boxes, height_tolerance=avg_h * 0.6)
+
+    total_capacity = len(b_boxes)
+    total_found = len(a_boxes)
+    fill_rate = (total_found / total_capacity) * 100 if total_capacity > 0 else 0.0
+    fill_rate = min(100.0, fill_rate)
+
+    all_correct, all_misaligned, all_wrong, all_missing, all_extra = [], [], [], [], []
+    visual_sims, spatial_sims = [], []
+
+    max_shelves = max(len(b_shelves), len(a_shelves))
+    shelf_details = []
+
+    for i in range(max_shelves):
+        b_s = b_shelves[i] if i < len(b_shelves) else []
+        a_s = a_shelves[i] if i < len(a_shelves) else []
+
+        c, m, w, miss, ext, avg_v, avg_s = match_shelf_hungarian(b_s, a_s, w_b, w_a)
+
+        all_correct.extend(c)
+        all_misaligned.extend(m)
+        all_wrong.extend(w)
+        all_missing.extend(miss)
+        all_extra.extend(ext)
+
+        if avg_v > 0: visual_sims.append(avg_v)
+        if avg_s > 0: spatial_sims.append(avg_s)
+        
+        products_dict = {}
+        for x in b_s:
+            if x['identity'] not in products_dict:
+                 products_dict[x['identity']] = {'expected': 0, 'found': 0, 'missing': 0, 'extra': 0}
+            products_dict[x['identity']]['expected'] += 1
+            
+        for x in a_s:
+            if x['identity'] not in products_dict:
+                 products_dict[x['identity']] = {'expected': 0, 'found': 0, 'missing': 0, 'extra': 0}
+            products_dict[x['identity']]['found'] += 1
+
+        for k, v in products_dict.items():
+            if v['expected'] > v['found']:
+                v['missing'] = v['expected'] - v['found']
+            elif v['found'] > v['expected']:
+                v['extra'] = v['found'] - v['expected']
+
+        shelf_details.append({
+            'row': i + 1,
+            'correct': len(c),
+            'misaligned': len(m),
+            'wrong': len(w),
+            'missing': len(miss),
+            'extra': len(ext),
+            'compliance': round((len(c) / len(b_s) * 100) if len(b_s) > 0 else 0, 1),
+            'product_details': products_dict
+        })
 
     avg_visual = sum(visual_sims) / len(visual_sims) if visual_sims else 0.0
     avg_spatial = sum(spatial_sims) / len(spatial_sims) if spatial_sims else 0.0
 
-    return correct, misaligned, wrong, missing, extra, avg_visual, avg_spatial
+    compliance_score = 0.0
+    if total_capacity > 0:
+        compliance_score = (len(all_correct) / total_capacity) * 100
 
+    # Clean up non-serializable data from boxes before returning
+    def clean_box(b_dict):
+        if 'color_hist' in b_dict: del b_dict['color_hist']
+        if 'fingerprint' in b_dict: del b_dict['fingerprint']
+        
+    for category in [all_correct, all_misaligned, all_missing, all_wrong, all_extra]:
+        for p in category:
+            if 'b_box' in p: clean_box(p['b_box'])
+            if 'a_box' in p: clean_box(p['a_box'])
 
-# 5. Baseline Mode
+    report = {
+        "audit_timestamp": datetime.now().isoformat(),
+        "baseline_image": os.path.basename(baseline_path),
+        "audit_image": os.path.basename(audit_path),
+        "compliance_score": round(compliance_score, 1),
+        "fill_rate": round(fill_rate, 1),
+        "average_visual_similarity": round(avg_visual, 4),
+        "average_spatial_similarity": round(avg_spatial, 4),
+        "image_dimensions": {"width": w_a, "height": h_a},
+        "row_wise_compliance": shelf_details,
+        "counts": {
+            "correct": len(all_correct),
+            "misaligned": len(all_misaligned),
+            "missing": len(all_missing),
+            "wrong": len(all_wrong),
+            "extra": len(all_extra)
+        },
+        "boxes": {
+            "correct": all_correct,
+            "misaligned": all_misaligned,
+            "missing": all_missing,
+            "wrong": all_wrong,
+            "extra": all_extra
+        }
+    }
+
+    # Generate Visualization
+    vis_img = cv2.imread(audit_path)
+    for box in all_correct:
+        x1, y1, x2, y2 = box['a_box']['x1'], box['a_box']['y1'], box['a_box']['x2'], box['a_box']['y2']
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 255, 0), 4)
+    for box in all_misaligned:
+        x1, y1, x2, y2 = box['a_box']['x1'], box['a_box']['y1'], box['a_box']['x2'], box['a_box']['y2']
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 215, 255), 4)
+    for box in all_wrong:
+        x1, y1, x2, y2 = box['a_box']['x1'], box['a_box']['y1'], box['a_box']['x2'], box['a_box']['y2']
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 0, 255), 4)
+    for box in all_extra:
+        x1, y1, x2, y2 = box['a_box']['x1'], box['a_box']['y1'], box['a_box']['x2'], box['a_box']['y2']
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), (255, 0, 0), 4)
+
+    for box in all_missing:
+        x1, y1, x2, y2 = box['b_box']['x1'], box['b_box']['y1'], box['b_box']['x2'], box['b_box']['y2']
+        cv2.rectangle(vis_img, (x1, y1), (x2, y2), (0, 0, 0), -1)
+        cv2.putText(vis_img, "MISSING", (x1+5, y1+30), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+
+    vis_path = os.path.join(output_dir, 'visual_report.jpg')
+    cv2.imwrite(vis_path, vis_img)
+
+    report_path = os.path.join(output_dir, 'report.json')
+    with open(report_path, 'w') as f:
+        json.dump(report, f, indent=2)
+
+    return report, vis_path
 
 def run_baseline(image_path):
     try:
-        img, boxes = detect_products(image_path)
-        # Clean up non-serializable data
-        for b in boxes:
-            if 'fingerprint' in b: del b['fingerprint']
-            if 'color_hist' in b: del b['color_hist']
+        catalog = load_catalog()
+        boxes, w, h = detect_products(image_path, catalog)
         capacity = len(boxes)
         print(json.dumps({"shelf_capacity": capacity}))
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         sys.exit(1)
 
-
-# 6. Audit Mode — Full Pipeline
-
 def run_audit(baseline_path, audit_path, baseline_capacity):
     try:
         timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
         reports_dir = os.path.join(os.path.dirname(__file__), '../reports')
         os.makedirs(reports_dir, exist_ok=True)
-
-        # Crop directories
-        b_crop_dir = os.path.join(reports_dir, f"crops/baseline_{timestamp}")
-        a_crop_dir = os.path.join(reports_dir, f"crops/audit_{timestamp}")
-
-        # Detect products with crop saving
-        b_img, b_boxes = detect_products(baseline_path, save_crops=True, crop_dir=b_crop_dir)
-        a_img, a_boxes = detect_products(audit_path, save_crops=True, crop_dir=a_crop_dir)
-
-        h1, w1 = b_img.shape[:2]
-        h2, w2 = a_img.shape[:2]
-
-        # Group into shelf rows
-        avg_h = sum(b['h'] for b in b_boxes) / len(b_boxes) if b_boxes else 100
-        b_shelves = group_into_shelves(b_boxes, avg_h * 0.6)
-        a_shelves = group_into_shelves(a_boxes, avg_h * 0.6)
-
-        # Results accumulators
-        all_correct = []
-        all_misaligned = []
-        all_wrong = []
-        all_missing = []
-        all_extra = []
-        row_wise_compliance = []
-        all_visual_sims = []
-        all_spatial_sims = []
-
-        # Match shelf rows (pair by index)
-        max_shelves = max(len(b_shelves), len(a_shelves))
-        for row_idx in range(max_shelves):
-            if row_idx >= len(b_shelves):
-                # Entire audit row is extra
-                for a in a_shelves[row_idx]:
-                    all_extra.append(a)
-                row_wise_compliance.append({
-                    'row': row_idx + 1,
-                    'correct': 0, 'wrong': 0, 'misaligned': 0,
-                    'missing': 0, 'extra': len(a_shelves[row_idx]),
-                    'compliance': 0.0
-                })
-                continue
-
-            if row_idx >= len(a_shelves):
-                # Entire baseline row is missing
-                for b in b_shelves[row_idx]:
-                    all_missing.append(b)
-                row_wise_compliance.append({
-                    'row': row_idx + 1,
-                    'correct': 0, 'wrong': 0, 'misaligned': 0,
-                    'missing': len(b_shelves[row_idx]), 'extra': 0,
-                    'compliance': 0.0
-                })
-                continue
-
-            # Hungarian matching for this row
-            correct, misaligned, wrong, missing, extra, avg_vis, avg_spa = \
-                match_shelf_hungarian(b_shelves[row_idx], a_shelves[row_idx], w1, w2)
-
-            all_correct.extend(correct)
-            all_misaligned.extend(misaligned)
-            all_wrong.extend(wrong)
-            all_missing.extend(missing)
-            all_extra.extend(extra)
-
-            if avg_vis > 0: all_visual_sims.append(avg_vis)
-            if avg_spa > 0: all_spatial_sims.append(avg_spa)
-
-            row_total = len(correct) + len(misaligned) + len(wrong) + len(missing)
-            row_compliance = (len(correct) / row_total * 100.0) if row_total > 0 else 0.0
-
-            row_wise_compliance.append({
-                'row': row_idx + 1,
-                'correct': len(correct),
-                'wrong': len(wrong),
-                'misaligned': len(misaligned),
-                'missing': len(missing),
-                'extra': len(extra),
-                'compliance': round(row_compliance, 1)
-            })
-
-        # Global metrics
-        capacity = max(int(baseline_capacity), len(b_boxes), 1)
-        correct_count = len(all_correct)
-        compliance_score = (correct_count / capacity) * 100.0
-        fill_rate = min((len(a_boxes) / capacity) * 100.0, 100.0)
-        avg_visual_similarity = sum(all_visual_sims) / len(all_visual_sims) if all_visual_sims else 0.0
-        avg_spatial_similarity = sum(all_spatial_sims) / len(all_spatial_sims) if all_spatial_sims else 0.0
-
-        # Create Composite Visualization
-        max_h = max(h1, h2)
-        composite = np.zeros((max_h, w1 + w2, 3), dtype=np.uint8)
-        composite[:h1, :w1, :] = b_img
-        composite[:h2, w1:w1 + w2, :] = a_img
-
-        # Colors (BGR)
-        GREEN = (0, 255, 0)       # Correct
-        ORANGE = (0, 165, 255)    # Misaligned
-        RED = (0, 0, 255)         # Missing
-        BLUE = (255, 0, 0)        # Extra
-        PURPLE = (255, 0, 255)    # Wrong Product
-
-        thickness = 2
-
-        # Draw on Baseline (Left side)
-        for c in all_correct:
-            b = c['b_box']
-            cv2.rectangle(composite, (b['x1'], b['y1']), (b['x2'], b['y2']), GREEN, thickness)
-        for m in all_misaligned:
-            b = m['b_box']
-            cv2.rectangle(composite, (b['x1'], b['y1']), (b['x2'], b['y2']), ORANGE, thickness)
-        for w in all_wrong:
-            b = w['b_box']
-            cv2.rectangle(composite, (b['x1'], b['y1']), (b['x2'], b['y2']), PURPLE, thickness)
-        for b in all_missing:
-            cv2.rectangle(composite, (b['x1'], b['y1']), (b['x2'], b['y2']), RED, thickness)
-
-        # Draw on Audit (Right side — offset by w1)
-        for c in all_correct:
-            a = c['a_box']
-            cv2.rectangle(composite, (a['x1'] + w1, a['y1']), (a['x2'] + w1, a['y2']), GREEN, thickness)
-        for m in all_misaligned:
-            a = m['a_box']
-            cv2.rectangle(composite, (a['x1'] + w1, a['y1']), (a['x2'] + w1, a['y2']), ORANGE, thickness)
-        for w in all_wrong:
-            a = w['a_box']
-            cv2.rectangle(composite, (a['x1'] + w1, a['y1']), (a['x2'] + w1, a['y2']), PURPLE, thickness)
-        for e in all_extra:
-            cv2.rectangle(composite, (e['x1'] + w1, e['y1']), (e['x2'] + w1, e['y2']), BLUE, thickness)
-
-        # Save visual report
-        visual_filename = f"comparison_{timestamp}.png"
-        visual_path = os.path.join(reports_dir, visual_filename)
-        cv2.imwrite(visual_path, composite, [cv2.IMWRITE_PNG_COMPRESSION, 1])
-
-        # Clean up non-serializable data before JSON
-        def clean_box(box):
-            """Remove tensor and numpy fields from a box dict."""
-            for key in ['fingerprint', 'color_hist']:
-                if key in box:
-                    del box[key]
-
-        for category in [all_correct, all_misaligned, all_missing, all_wrong, all_extra]:
-            for p in category:
-                clean_box(p)
-                if 'b_box' in p: clean_box(p['b_box'])
-                if 'a_box' in p: clean_box(p['a_box'])
-
-        # Build JSON Report
-        report_data = {
-            "audit_timestamp": timestamp,
-            "baseline_image": os.path.basename(baseline_path),
-            "audit_image": os.path.basename(audit_path),
-            "compliance_score": round(compliance_score, 1),
-            "fill_rate": round(fill_rate, 1),
-            "average_visual_similarity": round(avg_visual_similarity, 4),
-            "average_spatial_similarity": round(avg_spatial_similarity, 4),
-            "image_dimensions": {"width": w2, "height": h2},
-            "row_wise_compliance": row_wise_compliance,
-            "counts": {
-                "correct": len(all_correct),
-                "misaligned": len(all_misaligned),
-                "missing": len(all_missing),
-                "wrong": len(all_wrong),
-                "extra": len(all_extra)
-            },
-            "boxes": {
-                "correct": all_correct,
-                "misaligned": all_misaligned,
-                "missing": all_missing,
-                "wrong": all_wrong,
-                "extra": all_extra
-            }
-        }
-
-        # Save JSON report
-        json_filename = f"report_{timestamp}.json"
-        json_path = os.path.join(reports_dir, json_filename)
-        with open(json_path, 'w') as f:
-            json.dump(report_data, f, indent=4)
-
-        # Output for Node.js backend
+        
+        output_dir = os.path.join(reports_dir, timestamp)
+        report, vis_path = process_audit(baseline_path, audit_path, output_dir)
+        
+        # Override total_capacity with the one from the database if provided
+        if baseline_capacity is not None and baseline_capacity > 0:
+            total_found = report['counts']['correct'] + report['counts']['misaligned'] + report['counts']['wrong'] + report['counts']['extra']
+            report['fill_rate'] = min(100.0, (total_found / baseline_capacity) * 100)
+            report['compliance_score'] = (report['counts']['correct'] / baseline_capacity) * 100
+            
         print(json.dumps({
-            "compliance_score": round(compliance_score, 1),
-            "fill_rate": round(fill_rate, 1),
-            "report_path": json_filename,
-            "visual_report_path": visual_filename,
-            "comparison_report": report_data
+            "compliance_score": round(report['compliance_score'], 1),
+            "fill_rate": round(report['fill_rate'], 1),
+            "report_path": f"{timestamp}/report.json",
+            "visual_report_path": f"{timestamp}/visual_report.jpg",
+            "comparison_report": report
         }))
-
     except Exception as e:
         import traceback
         traceback.print_exc(file=sys.stderr)
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         sys.exit(1)
 
-
-# 7. CLI Entry Point
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Shelf Compliance Audit Engine v2 (DINOv2 + Hungarian)")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Shelf Compliance Audit Engine v3 (DINOv2 + Catalog)")
     parser.add_argument('--mode', choices=['baseline', 'audit'], required=True)
     parser.add_argument('--image', type=str, help="Path to baseline image (for baseline mode)")
     parser.add_argument('--baseline', type=str, help="Path to baseline image (for audit mode)")

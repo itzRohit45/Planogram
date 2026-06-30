@@ -84,7 +84,7 @@
           </div>
           <div *ngFor="let item of currentReport.comparison_report.boxes?.extra" 
                class="bbox bbox-info" 
-               [ngStyle]="getBoxStyle(item, dims.width, dims.height)"
+               [ngStyle]="getBoxStyle(item.a_box, dims.width, dims.height)"
                (mouseenter)="showBoxInfo('info', 'Extra: ' + item.identity)" (mouseleave)="hideBoxInfo()">
           </div>
         </ng-container>
@@ -124,34 +124,72 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let row of currentReport.comparison_report.row_wise_compliance">
-            <td style="font-weight: 600;">Level {{row.row}}</td>
-            <td style="text-align: center;">
-              <span *ngIf="row.correct > 0" class="badge badge-success">{{row.correct}}</span>
-              <span *ngIf="row.correct === 0" style="color: var(--text-muted)">-</span>
-            </td>
-            <td style="text-align: center;">
-              <span *ngIf="row.wrong > 0" class="badge badge-wrong">{{row.wrong}}</span>
-              <span *ngIf="row.wrong === 0" style="color: var(--text-muted)">-</span>
-            </td>
-            <td style="text-align: center;">
-              <span *ngIf="row.misaligned > 0" class="badge badge-warning">{{row.misaligned}}</span>
-              <span *ngIf="row.misaligned === 0" style="color: var(--text-muted)">-</span>
-            </td>
-            <td style="text-align: center;">
-              <span *ngIf="row.missing > 0" class="badge badge-error">{{row.missing}}</span>
-              <span *ngIf="row.missing === 0" style="color: var(--text-muted)">-</span>
-            </td>
-            <td style="text-align: center;">
-              <span *ngIf="row.extra > 0" class="badge badge-info">{{row.extra}}</span>
-              <span *ngIf="row.extra === 0" style="color: var(--text-muted)">-</span>
-            </td>
-            <td style="text-align: right;">
-              <span class="badge" [ngClass]="row.compliance > 80 ? 'badge-success' : row.compliance > 50 ? 'badge-warning' : 'badge-error'" style="font-size: 0.9em; padding: 4px 12px;">
-                {{row.compliance}}%
-              </span>
-            </td>
-          </tr>
+          <ng-container *ngFor="let row of currentReport.comparison_report.row_wise_compliance">
+            <tr (click)="toggleRow(row.row)" style="cursor: pointer;" [ngStyle]="{'background': expandedRow === row.row ? 'rgba(255,255,255,0.05)' : ''}">
+              <td style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                <svg [style.transform]="expandedRow === row.row ? 'rotate(90deg)' : 'rotate(0)'" style="transition: transform 0.2s;" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                Level {{row.row}}
+              </td>
+              <td style="text-align: center;">
+                <span *ngIf="row.correct > 0" class="badge badge-success">{{row.correct}}</span>
+                <span *ngIf="row.correct === 0" style="color: var(--text-muted)">-</span>
+              </td>
+              <td style="text-align: center;">
+                <span *ngIf="row.wrong > 0" class="badge badge-wrong">{{row.wrong}}</span>
+                <span *ngIf="row.wrong === 0" style="color: var(--text-muted)">-</span>
+              </td>
+              <td style="text-align: center;">
+                <span *ngIf="row.misaligned > 0" class="badge badge-warning">{{row.misaligned}}</span>
+                <span *ngIf="row.misaligned === 0" style="color: var(--text-muted)">-</span>
+              </td>
+              <td style="text-align: center;">
+                <span *ngIf="row.missing > 0" class="badge badge-error">{{row.missing}}</span>
+                <span *ngIf="row.missing === 0" style="color: var(--text-muted)">-</span>
+              </td>
+              <td style="text-align: center;">
+                <span *ngIf="row.extra > 0" class="badge badge-info">{{row.extra}}</span>
+                <span *ngIf="row.extra === 0" style="color: var(--text-muted)">-</span>
+              </td>
+              <td style="text-align: right;">
+                <span class="badge" [ngClass]="row.compliance > 80 ? 'badge-success' : row.compliance > 50 ? 'badge-warning' : 'badge-error'" style="font-size: 0.9em; padding: 4px 12px;">
+                  {{row.compliance}}%
+                </span>
+              </td>
+            </tr>
+            <!-- Expanded Details Row -->
+            <tr *ngIf="expandedRow === row.row">
+              <td colspan="7" style="padding: 16px 24px; background: rgba(0,0,0,0.3); border-bottom: 1px solid var(--border-light);">
+                <ng-container *ngIf="row.product_details; else oldReportFallback">
+                  <h4 style="margin: 0 0 12px 0; font-size: 0.95em; color: var(--text-muted);">Product Counts for Level {{row.row}}</h4>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+                    <div *ngFor="let prod of objectKeys(row.product_details)" class="glass-card" style="padding: 12px; background: rgba(255,255,255,0.02);">
+                      <div style="font-weight: 600; margin-bottom: 8px;">{{prod}}</div>
+                      <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: var(--text-muted); margin-bottom: 4px;">
+                        <span>Expected:</span> <strong style="color: var(--text-primary);">{{row.product_details[prod].expected}}</strong>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: var(--text-muted); margin-bottom: 4px;">
+                        <span>Found:</span> <strong style="color: var(--text-primary);">{{row.product_details[prod].found}}</strong>
+                      </div>
+                      <div *ngIf="row.product_details[prod].missing > 0" style="display: flex; justify-content: space-between; font-size: 0.85em; color: var(--status-error); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span>Missing:</span> <strong>{{row.product_details[prod].missing}}</strong>
+                      </div>
+                      <div *ngIf="row.product_details[prod].extra > 0" style="display: flex; justify-content: space-between; font-size: 0.85em; color: var(--status-info); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span>Extra:</span> <strong>{{row.product_details[prod].extra}}</strong>
+                      </div>
+                      <div *ngIf="row.product_details[prod].missing === 0 && row.product_details[prod].extra === 0" style="display: flex; justify-content: space-between; font-size: 0.85em; color: var(--status-success); margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.05);">
+                        <span>Perfect Match</span> <strong>✓</strong>
+                      </div>
+                    </div>
+                  </div>
+                </ng-container>
+                <ng-template #oldReportFallback>
+                  <div style="padding: 12px; text-align: center; color: var(--text-muted); font-style: italic;">
+                    Product breakdown details are not available for this older report. Please run a New Audit to see this feature!
+                  </div>
+                </ng-template>
+              </td>
+            </tr>
+          </ng-container>
         </tbody>
       </table>
     </div>

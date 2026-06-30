@@ -123,3 +123,45 @@ export const runMLAudit = (baselinePath: string, auditPath: string, shelfCapacit
     });
   });
 };
+
+export interface MLCatalogResult {
+  fingerprint: number[];
+  color_hist?: number[];
+  error?: string;
+}
+
+export const runMLCatalog = (imagePath: string): Promise<MLCatalogResult> => {
+  return new Promise((resolve, reject) => {
+    const catalogScriptPath = path.resolve(__dirname, '../../../ml-service/catalog_engine.py');
+    const process = spawn(pythonExecutable, [catalogScriptPath, '--image', imagePath]);
+
+    let outputData = '';
+    let errorData = '';
+
+    process.stdout.on('data', (data) => {
+      outputData += data.toString();
+    });
+
+    process.stderr.on('data', (data) => {
+      errorData += data.toString();
+    });
+
+    process.on('close', (code) => {
+      if (code !== 0 && !outputData.includes('{')) {
+        console.error('Python Error:', errorData);
+        return resolve({ fingerprint: [], error: 'Failed to process catalog image' });
+      }
+
+      try {
+        const jsonStr = outputData.substring(outputData.indexOf('{'), outputData.lastIndexOf('}') + 1);
+        const result = JSON.parse(jsonStr);
+        if (result.error) {
+           return resolve({ fingerprint: [], error: result.error });
+        }
+        resolve(result as MLCatalogResult);
+      } catch (e) {
+        resolve({ fingerprint: [], error: 'Invalid output from ML service' });
+      }
+    });
+  });
+};

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 const auditRoutes = require('./routes/audit.routes').default;
+const productRoutes = require('./routes/product.routes').default;
 import db from './config/db';
 
 const app = express();
@@ -20,6 +21,7 @@ console.log('Initializing DB...');
 
 // Routes
 app.use('/api', auditRoutes);
+app.use('/api/products', productRoutes);
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);

@@ -14,12 +14,18 @@ import { Router } from '@angular/router';
 export class ComplianceReportComponent implements OnInit {
   currentReport: AuditResponse | null = null;
   hoveredBoxInfo: { type: string, text: string } | null = null;
+  expandedRow: number | null = null;
+  objectKeys = Object.keys; // for template iteration
 
   constructor(
     public api: ApiService,
     private shared: SharedDataService,
     private router: Router
   ) {}
+
+  toggleRow(rowNum: number) {
+    this.expandedRow = this.expandedRow === rowNum ? null : rowNum;
+  }
 
   ngOnInit() {
     this.currentReport = this.shared.currentReport;

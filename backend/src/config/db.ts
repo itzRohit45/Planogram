@@ -40,6 +40,18 @@ function initializeDatabase() {
         FOREIGN KEY (baseline_id) REFERENCES baselines(id)
       )
     `);
+
+    // Products table (Catalog)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        image_path TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        color_hist TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
   });
 }
 
