@@ -65,7 +65,7 @@ def load_catalog():
     return catalog
 
 def match_product(fingerprint, color_hist, crop_bgr, catalog):
-    import pytesseract
+
     
     ch, cw = crop_bgr.shape[:2]
     aspect_ratio = round(cw / float(ch), 4) if ch > 0 else 0.0
@@ -131,30 +131,7 @@ def match_product(fingerprint, color_hist, crop_bgr, catalog):
                     print(f"[DEBUG] ORB_VERIFIED: {top_orb_p['name']} (matches: {top_orb_matches})", file=sys.stderr)
                     return top_orb_p['name'], score_dict
                 
-    # Phase 4: OCR Tie-breaker
-    print(f"[DEBUG] ORB unclear, running OCR tie-breaker...", file=sys.stderr)
-    gray_crop = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
-    ocr_text = pytesseract.image_to_string(gray_crop).strip()
-    ocr_text = " ".join(ocr_text.lower().split())
-    
-    if len(ocr_text) > 3:
-        audit_words = set(ocr_text.split())
-        for s, p in scores[:3]:
-            p_name = p['name'].lower().replace("_", " ")
-            name_words = [w for w in p_name.split() if len(w) >= 3]
-            
-            if any(w in audit_words for w in name_words):
-                print(f"[DEBUG] OCR_VERIFIED: {p['name']} matched name in text '{ocr_text}'", file=sys.stderr)
-                return p['name'], score_dict
-                
-            if p.get('ocr_text'):
-                cat_words = {w for w in p['ocr_text'].split() if len(w) >= 4}
-                audit_words_filtered = {w for w in audit_words if len(w) >= 4}
-                common_words = cat_words.intersection(audit_words_filtered)
-                
-                if len(common_words) >= 1:
-                    print(f"[DEBUG] OCR_VERIFIED: {p['name']} matched common words {common_words} in '{ocr_text}'", file=sys.stderr)
-                    return p['name'], score_dict
+
                 
     # Fallback
     print(f"[DEBUG] Tie-breakers failed, falling back to top match: {top1_p['name']}", file=sys.stderr)

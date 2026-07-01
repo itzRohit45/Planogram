@@ -65,7 +65,6 @@ router.post('/', upload.single('image'), async (req, res) => {
     console.log(`HSV Color Histogram Generated: ${mlResult.color_hist ? 'Yes' : 'No'}`);
     console.log(`Aspect Ratio Extracted: ${aspectRatio ? aspectRatio.toFixed(2) : 'No'}`);
     console.log(`ORB Descriptors Generated: ${mlResult.orb_descriptors ? 'Yes' : 'No'}`);
-    console.log(`OCR Text Extracted: ${ocrText ? '"' + ocrText + '"' : 'None'}`);
     if (mlResult.color_hist) {
         // Just print a small sample of the 512-dimension histogram array
         console.log(`Histogram Sample: [${mlResult.color_hist.slice(0, 5).map((x: number) => x.toFixed(4)).join(', ')} ...]`);

@@ -69,8 +69,7 @@ def extract_fingerprint(image_path):
         features = feature_extractor(tensor_img)
         features = F.normalize(features, p=2, dim=1)
 
-    import pytesseract
-    
+
     # 1. Aspect Ratio
     ch, cw = crop_img.shape[:2]
     aspect_ratio = round(cw / float(ch), 4) if ch > 0 else 0.0
@@ -81,10 +80,8 @@ def extract_fingerprint(image_path):
     kp, des = orb.detectAndCompute(gray_crop, None)
     orb_descriptors = des.tolist() if des is not None else []
 
-    # 3. OCR Text
-    ocr_text = pytesseract.image_to_string(crop_img).strip()
-    # Normalize OCR text (lowercase, remove newlines)
-    ocr_text = " ".join(ocr_text.lower().split())
+    # 3. OCR Text removed
+    ocr_text = ""
 
     # Compute color histogram on the center 60% to avoid background pixels
     cy1, cy2 = int(ch * 0.2), int(ch * 0.8)
