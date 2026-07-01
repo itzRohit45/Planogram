@@ -42,49 +42,123 @@ def load_catalog():
         try:
             conn = sqlite3.connect(db_path)
             c = conn.cursor()
-            c.execute("SELECT name, fingerprint, color_hist FROM products")
+            c.execute("SELECT name, fingerprint, color_hist, aspect_ratio, orb_descriptors, ocr_text FROM products")
             for row in c.fetchall():
                 name = row[0]
                 fp = json.loads(row[1])
                 ch = json.loads(row[2]) if row[2] else None
+                ar = row[3] if row[3] else 0.0
+                orb = json.loads(row[4]) if row[4] else []
+                ocr = row[5] if row[5] else ""
                 
                 catalog.append({
                     'name': name,
                     'fingerprint': torch.tensor(fp, dtype=torch.float32).to(device),
-                    'color_hist': np.array(ch, dtype=np.float32) if ch else None
+                    'color_hist': np.array(ch, dtype=np.float32) if ch else None,
+                    'aspect_ratio': ar,
+                    'orb_descriptors': np.array(orb, dtype=np.uint8) if orb else None,
+                    'ocr_text': ocr
                 })
             conn.close()
         except Exception as e:
             print(f"[DEBUG] Failed to load catalog: {e}", file=sys.stderr)
     return catalog
 
-def match_product(fingerprint, color_hist, catalog):
-    best_name = "Unknown Product"
-    best_score = -1.0
-    scores = {}
+def match_product(fingerprint, color_hist, crop_bgr, catalog):
+    import pytesseract
+    
+    ch, cw = crop_bgr.shape[:2]
+    aspect_ratio = round(cw / float(ch), 4) if ch > 0 else 0.0
+    
+    scores = []
     
     for p in catalog:
         dino_score = F.cosine_similarity(fingerprint.unsqueeze(0), p['fingerprint'].unsqueeze(0)).item()
         
+        color_score = 0.0
         if color_hist is not None and p.get('color_hist') is not None:
-            # Correlation
             corr = cv2.compareHist(color_hist, p['color_hist'], cv2.HISTCMP_CORREL)
             color_score = max(0.0, corr)
-            # Lays vs Kurkure distinction needs strong color matching, but DINOv2 also is good.
-            score = (dino_score * 0.7) + (color_score * 0.3)
-        else:
-            score = dino_score
             
-        scores[p['name']] = round(score, 4)
-        if score > best_score:
-            best_score = score
-            best_name = p['name']
-            
-    print(f"[DEBUG] Scores: {scores} => Chose: {best_name}", file=sys.stderr)
+        score = (dino_score * 0.8) + (color_score * 0.2)
+        scores.append((score, p))
+        
+    scores.sort(key=lambda x: x[0], reverse=True)
     
-    if best_score >= 0.60:
-        return best_name, scores
-    return "Unknown Product", scores
+    if len(scores) == 0:
+        return "Unknown Product", {}
+        
+    top1_score, top1_p = scores[0]
+    top2_score = scores[1][0] if len(scores) > 1 else 0.0
+    
+    score_dict = {p['name']: round(s, 4) for s, p in scores}
+    
+    if top1_score < 0.60:
+        return "Unknown Product", score_dict
+        
+    # Phase 2: Confidence
+    margin = top1_score - top2_score
+    if margin > 0.08:
+        print(f"[DEBUG] DINO_CONFIDENT: {top1_p['name']} (score: {top1_score:.4f})", file=sys.stderr)
+        return top1_p['name'], score_dict
+        
+    # Phase 3: ORB Tie-breaker for close scores
+    if margin <= 0.08:
+        print(f"[DEBUG] Scores close, running ORB tie-breaker...", file=sys.stderr)
+        orb = cv2.ORB_create(nfeatures=500)
+        gray_crop = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+        kp1, des1 = orb.detectAndCompute(gray_crop, None)
+        
+        if des1 is not None and len(des1) > 0:
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            orb_results = []
+            for s, p in scores[:3]:
+                des2 = p.get('orb_descriptors')
+                if des2 is not None and len(des2) > 0:
+                    try:
+                        matches = bf.match(des1, des2)
+                        orb_results.append((len(matches), p))
+                    except Exception:
+                        pass
+                        
+            if orb_results:
+                orb_results.sort(key=lambda x: x[0], reverse=True)
+                top_orb_matches, top_orb_p = orb_results[0]
+                second_orb_matches = orb_results[1][0] if len(orb_results) > 1 else 0
+                
+                print(f"[DEBUG] ORB Match counts: 1st={top_orb_matches}, 2nd={second_orb_matches}", file=sys.stderr)
+                if top_orb_matches > 10 and (top_orb_matches > second_orb_matches * 1.3):
+                    print(f"[DEBUG] ORB_VERIFIED: {top_orb_p['name']} (matches: {top_orb_matches})", file=sys.stderr)
+                    return top_orb_p['name'], score_dict
+                
+    # Phase 4: OCR Tie-breaker
+    print(f"[DEBUG] ORB unclear, running OCR tie-breaker...", file=sys.stderr)
+    gray_crop = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2GRAY)
+    ocr_text = pytesseract.image_to_string(gray_crop).strip()
+    ocr_text = " ".join(ocr_text.lower().split())
+    
+    if len(ocr_text) > 3:
+        audit_words = set(ocr_text.split())
+        for s, p in scores[:3]:
+            p_name = p['name'].lower().replace("_", " ")
+            name_words = [w for w in p_name.split() if len(w) >= 3]
+            
+            if any(w in audit_words for w in name_words):
+                print(f"[DEBUG] OCR_VERIFIED: {p['name']} matched name in text '{ocr_text}'", file=sys.stderr)
+                return p['name'], score_dict
+                
+            if p.get('ocr_text'):
+                cat_words = {w for w in p['ocr_text'].split() if len(w) >= 4}
+                audit_words_filtered = {w for w in audit_words if len(w) >= 4}
+                common_words = cat_words.intersection(audit_words_filtered)
+                
+                if len(common_words) >= 1:
+                    print(f"[DEBUG] OCR_VERIFIED: {p['name']} matched common words {common_words} in '{ocr_text}'", file=sys.stderr)
+                    return p['name'], score_dict
+                
+    # Fallback
+    print(f"[DEBUG] Tie-breakers failed, falling back to top match: {top1_p['name']}", file=sys.stderr)
+    return top1_p['name'], score_dict
 
 def detect_products(image_path, catalog, save_crops=False, crop_dir=None):
     img = cv2.imread(image_path)
@@ -137,6 +211,7 @@ def detect_products(image_path, catalog, save_crops=False, crop_dir=None):
                 'cx': int((x1 + x2) / 2),
                 'cy': int((y1 + y2) / 2),
                 'color_hist': color_hist,
+                'crop_img': crop_bgr if cx2 > cx1 and cy2 > cy1 else np.zeros((224, 224, 3), dtype=np.uint8),
                 'crop_path': crop_path
             })
 
@@ -149,10 +224,15 @@ def detect_products(image_path, catalog, save_crops=False, crop_dir=None):
         for i in range(len(boxes)):
             fp = features[i]
             ch = boxes[i]['color_hist']
-            identity, scores = match_product(fp, ch, catalog)
+            identity, scores = match_product(fp, ch, boxes[i]['crop_img'], catalog)
             boxes[i]['identity'] = identity
             boxes[i]['scores'] = scores
-            boxes[i]['fingerprint'] = fp
+            
+            # Remove non-serializable fields before returning
+            if 'color_hist' in boxes[i]:
+                del boxes[i]['color_hist']
+            if 'crop_img' in boxes[i]:
+                del boxes[i]['crop_img']
 
     return boxes, w_img, h_img
 

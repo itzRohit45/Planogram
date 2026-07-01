@@ -55,11 +55,17 @@ router.post('/', upload.single('image'), async (req, res) => {
 
     const fingerprintJson = JSON.stringify(mlResult.fingerprint);
     const colorHistJson = mlResult.color_hist ? JSON.stringify(mlResult.color_hist) : null;
+    const orbDescJson = mlResult.orb_descriptors ? JSON.stringify(mlResult.orb_descriptors) : null;
+    const aspectRatio = mlResult.aspect_ratio || null;
+    const ocrText = mlResult.ocr_text || null;
 
     // Log the generated ML features as requested
     console.log(`\n--- ML Feature Generation for ${name} ---`);
     console.log(`DINOv2 Semantic Fingerprint Generated: Yes (${mlResult.fingerprint.length} dimensions)`);
     console.log(`HSV Color Histogram Generated: ${mlResult.color_hist ? 'Yes' : 'No'}`);
+    console.log(`Aspect Ratio Extracted: ${aspectRatio ? aspectRatio.toFixed(2) : 'No'}`);
+    console.log(`ORB Descriptors Generated: ${mlResult.orb_descriptors ? 'Yes' : 'No'}`);
+    console.log(`OCR Text Extracted: ${ocrText ? '"' + ocrText + '"' : 'None'}`);
     if (mlResult.color_hist) {
         // Just print a small sample of the 512-dimension histogram array
         console.log(`Histogram Sample: [${mlResult.color_hist.slice(0, 5).map((x: number) => x.toFixed(4)).join(', ')} ...]`);
@@ -68,8 +74,8 @@ router.post('/', upload.single('image'), async (req, res) => {
 
     // Save to DB
     db.run(
-      `INSERT INTO products (name, image_path, fingerprint, color_hist) VALUES (?, ?, ?, ?)`,
-      [name, imagePath, fingerprintJson, colorHistJson],
+      `INSERT INTO products (name, image_path, fingerprint, color_hist, aspect_ratio, orb_descriptors, ocr_text) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [name, imagePath, fingerprintJson, colorHistJson, aspectRatio, orbDescJson, ocrText],
       function(err) {
         if (err) {
           console.error(err);

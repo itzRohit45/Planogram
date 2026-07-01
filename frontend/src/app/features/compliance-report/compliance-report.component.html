@@ -7,7 +7,7 @@
 
 <div *ngIf="currentReport" class="animate-fade-in">
   <!-- Top Metrics Row -->
-  <div class="grid grid-cols-4" style="margin-bottom: 24px;">
+  <div class="grid grid-cols-3" style="margin-bottom: 24px;">
     <div class="glass-card" style="text-align: center;">
       <div class="stat-label">Total Compliance</div>
       <div class="stat-value" [style.color]="currentReport.compliance_score > 80 ? 'var(--status-success)' : 'var(--status-warning)'">
@@ -24,14 +24,6 @@
         {{currentReport.fill_rate}}%
       </div>
       <div class="badge badge-info" style="margin-top: 8px;">Capacity Utilization</div>
-    </div>
-    
-    <div class="glass-card" style="text-align: center;">
-      <div class="stat-label">Avg Visual Match</div>
-      <div class="stat-value" style="color: var(--status-info);">
-        {{(currentReport.comparison_report?.average_visual_similarity || 0) * 100 | number:'1.0-0'}}%
-      </div>
-      <div class="badge badge-info" style="margin-top: 8px;">DINOv2 Confidence</div>
     </div>
 
     <div class="glass-card" style="display: flex; flex-direction: column; justify-content: center; gap: 12px; text-align: center;">
@@ -70,7 +62,7 @@
           <div *ngFor="let item of currentReport.comparison_report.boxes?.correct" 
                class="bbox bbox-correct" 
                [ngStyle]="getBoxStyle(item.a_box, dims.width, dims.height)"
-               (mouseenter)="showBoxInfo('correct', item.identity + ' | Match Score: ' + item.combined_score)" (mouseleave)="hideBoxInfo()">
+               (mouseenter)="showBoxInfo('correct', item.identity)" (mouseleave)="hideBoxInfo()">
           </div>
           <div *ngFor="let item of currentReport.comparison_report.boxes?.misaligned" 
                class="bbox bbox-warning" 

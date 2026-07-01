@@ -49,6 +49,9 @@ function initializeDatabase() {
         image_path TEXT NOT NULL,
         fingerprint TEXT NOT NULL,
         color_hist TEXT,
+        aspect_ratio REAL,
+        orb_descriptors TEXT,
+        ocr_text TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
