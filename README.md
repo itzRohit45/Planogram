@@ -3,7 +3,7 @@
 Planogram is an intelligent, AI-powered computer vision platform designed to automate retail shelf compliance and auditing. By combining state-of-the-art vision models with a highly responsive dashboard, Planogram compares store shelves in real-time against reference baselines to instantly identify missing, extra, or incorrectly placed products.
 
 <div align="center">
-  <img src="docs/images/dashboard.png?v=2" alt="Planogram Dashboard" width="800"/>
+  <img src="docs/images/dashboard.png?v=3" alt="Planogram Dashboard" width="800"/>
 </div>
 
 ## Key Features
