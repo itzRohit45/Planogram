@@ -3,7 +3,7 @@
 Planogram is an intelligent, AI-powered computer vision platform designed to automate retail shelf compliance and auditing. By combining state-of-the-art vision models with a highly responsive dashboard, Planogram compares store shelves in real-time against reference baselines to instantly identify missing, extra, or incorrectly placed products.
 
 <div align="center">
-  <img src="docs/images/dashboard.png" alt="Planogram Dashboard" width="800"/>
+  <img src="docs/images/dashboard.png?v=2" alt="Planogram Dashboard" width="800"/>
 </div>
 
 ## Key Features
@@ -79,6 +79,7 @@ graph TD
         Dino[DINOv2 Embeddings]:::ml
         Yolo[YOLOv8s Object Detection]:::ml
         ThreePhase[Three-Phase Matcher]:::ml
+        Catalog[Product Catalog Engine]:::ml
     end
 
     %% Relationships
@@ -86,7 +87,9 @@ graph TD
     B -->|Saves Metadata| DB
     B -->|Saves Images| Files
     B -->|Spawns Child Process| C
+    B -->|Pre-computes SKUs| Catalog
     
+    Catalog -->|Extracts Signatures| Dino
     C -->|Detects bounding boxes| Yolo
     C -->|Extracts 384d features| Dino
     C -->|Pairs objects via Visual/Color/Spatial| ThreePhase
@@ -100,14 +103,45 @@ graph TD
 ## 🔍 How It Works: The Audit Workflow
 
 <div align="center">
-  <img src="docs/images/report.png" alt="Compliance Report" width="800"/>
+  <img src="docs/images/report.png?v=2" alt="Compliance Report" width="800"/>
 </div>
 
 ### Row-Wise Execution Detail
 
 <div align="center">
-  <img src="docs/images/row_wise.png" alt="Row-wise Breakdown" width="800"/>
+  <img src="docs/images/row_wise.png?v=2" alt="Row-wise Breakdown" width="800"/>
 </div>
+
+### 1. Catalog Generation Workflow
+
+Before an audit can happen, products must be digitized. The system extracts their structural, physical, and color signatures.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Frontend as Angular UI
+    participant Backend as Node.js Express
+    participant Python as ML Catalog Engine
+    participant DB as SQLite
+
+    User->>Frontend: Uploads Product Image & Details
+    Frontend->>Backend: POST /api/products
+    Backend->>Python: Spawns catalog_engine.py
+    
+    activate Python
+    Note over Python: Extract Signatures
+    Python->>Python: Extract 384d DINOv2 Vector
+    Python->>Python: Calculate HSV Color Histogram
+    Python->>Python: Extract ORB Keypoints
+    Python-->>Backend: Returns JSON Signatures
+    deactivate Python
+    
+    Backend->>DB: Stores Signatures (BLOB/JSON)
+    Backend-->>Frontend: HTTP 201 Created
+```
+
+### 2. Live Audit Workflow
 
 When an auditor takes a picture of a store shelf, the image is sent through a rigorous ML pipeline to generate the interactive bounding boxes and row-by-row execution details you see in the UI.
 
