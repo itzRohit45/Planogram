@@ -29,37 +29,23 @@ graph TD
     classDef phase fill:#f3f4f6,stroke:#9ca3af,stroke-width:2px,color:#111827,font-weight:bold;
     classDef step fill:#bfdbfe,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a,font-weight:bold;
     classDef success fill:#bbf7d0,stroke:#22c55e,stroke-width:2px,color:#14532d,font-weight:bold;
+    classDef decision fill:#fef08a,stroke:#eab308,stroke-width:2px,color:#854d0e,font-weight:bold;
+    classDef fallback fill:#ffedd5,stroke:#f97316,stroke-width:2px,color:#9a3412,font-weight:bold;
 
-    A[Detected Audit Item] --> Phase1
-    
-    subgraph Phase1 [Phase 1: Spatial Row Clustering]
-        direction TB
-        S1(Extract Y-Center of Bounding Box):::step
-        S2(Cluster into Shelf Levels):::step
-        S1 --> S2
-    end
-    
-    Phase1 --> Phase2
-    
-    subgraph Phase2 [Phase 2: Visual & Semantic Scoring]
-        direction TB
-        V1(DINOv2 Cosine Similarity):::step
-        V2(ORB Descriptor Matching):::step
-        V1 --> V2
-    end
-    
-    Phase2 --> Phase3
-    
-    subgraph Phase3 [Phase 3: Color Disambiguation]
-        direction TB
-        C1(HSV Histogram Bhattacharyya Distance):::step
-        C1 --> C2(Final Weighted Score):::step
-    end
-    
-    Phase3 --> Matcher
-    
-    Matcher{Row-wise Bipartite Matching}:::step
-    Matcher -->|Assigns highest score| Final(Match: Correct / Wrong / Missing):::success
+    A[Phase 1: Base Score <br> 80% DINO + 20% Color]:::phase
+    B{Margin > 8%?}:::decision
+    C[DINO CONFIDENT <br> Match Found]:::success
+    D[Phase 2: OpenCV ORB <br> Keypoint Matching]:::step
+    E{Match Diff > 30%?}:::decision
+    F[ORB VERIFIED <br> Tie Broken]:::success
+    G[FALLBACK <br> Highest Base Score]:::fallback
+
+    A --> B
+    B -->|Yes| C
+    B -->|No| D
+    D --> E
+    E -->|Yes| F
+    E -->|No / Unclear| G
 ```
 
 ---
