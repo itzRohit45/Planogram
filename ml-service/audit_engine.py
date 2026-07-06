@@ -42,22 +42,18 @@ def load_catalog():
         try:
             conn = sqlite3.connect(db_path)
             c = conn.cursor()
-            c.execute("SELECT name, fingerprint, color_hist, aspect_ratio, orb_descriptors, ocr_text FROM products")
+            c.execute("SELECT name, fingerprint, color_hist, orb_descriptors FROM products")
             for row in c.fetchall():
                 name = row[0]
                 fp = json.loads(row[1])
                 ch = json.loads(row[2]) if row[2] else None
-                ar = row[3] if row[3] else 0.0
-                orb = json.loads(row[4]) if row[4] else []
-                ocr = row[5] if row[5] else ""
+                orb = json.loads(row[3]) if row[3] else []
                 
                 catalog.append({
                     'name': name,
                     'fingerprint': torch.tensor(fp, dtype=torch.float32).to(device),
                     'color_hist': np.array(ch, dtype=np.float32) if ch else None,
-                    'aspect_ratio': ar,
-                    'orb_descriptors': np.array(orb, dtype=np.uint8) if orb else None,
-                    'ocr_text': ocr
+                    'orb_descriptors': np.array(orb, dtype=np.uint8) if orb else None
                 })
             conn.close()
         except Exception as e:
@@ -68,7 +64,6 @@ def match_product(fingerprint, color_hist, crop_bgr, catalog):
 
     
     ch, cw = crop_bgr.shape[:2]
-    aspect_ratio = round(cw / float(ch), 4) if ch > 0 else 0.0
     
     scores = []
     

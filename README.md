@@ -1,6 +1,6 @@
 # Planogram - AI-Powered Shelf Execution Analytics
 
-Planogram is an intelligent, AI-powered computer vision platform designed to automate retail shelf compliance and auditing. By combining state-of-the-art vision models with a highly responsive, mobile-first dashboard, Planogram compares store shelves in real-time against reference baselines to instantly identify missing, extra, or incorrectly placed products.
+Planogram is an intelligent, AI-powered computer vision platform designed to automate retail shelf compliance and auditing. By combining state-of-the-art vision models with a highly responsive dashboard, Planogram compares store shelves in real-time against reference baselines to instantly identify missing, extra, or incorrectly placed products.
 
 <div align="center">
   <img src="docs/images/dashboard.png" alt="Planogram Dashboard" width="800"/>
@@ -10,8 +10,11 @@ Planogram is an intelligent, AI-powered computer vision platform designed to aut
 
 - **Advanced Visual Fingerprinting**: Utilizes Meta's **DINOv2** self-supervised vision transformer to extract 384-dimensional semantic embeddings from product crops.
 - **Intelligent Object Detection**: Powered by **YOLOv8s** for real-time bounding box detection of products on shelves.
-- **Hungarian Matching Algorithm**: Uses linear sum assignment to perfectly pair audit products to baseline products based on combined visual, spatial, and color similarities.
-- **Mobile-First UI with Camera Integration**: Features a stunning, glassmorphic UI built with Angular. Take photos directly from your mobile device using native HTML5 camera integration.
+- **Three-Phase Matching Algorithm**: Uses a sophisticated heuristic engine that combines:
+  1. **Visual Similarity (DINOv2 + ORB)**: Matches high-level semantic embeddings and low-level keypoint features.
+  2. **Color Similarity (HSV Histograms)**: Matches color profiles to disambiguate visually similar products.
+  3. **Spatial Y-Coordinate Clustering**: Groups products into row-levels and performs localized bipartite matching (Hungarian Algorithm) strictly within shelves.
+- **Responsive Modern UI**: Features a stunning, glassmorphic UI built with Angular 18.
 - **Real-time Compliance Dashboards**: Instantly view metrics like Total Baselines, Avg Compliance, and Row-Wise breakdown stats.
 
 ---
@@ -31,7 +34,6 @@ graph TD
     %% Nodes
     subgraph "Client Tier"
         A[Angular 18 Frontend]:::frontend
-        Device[Mobile Camera / Browser]:::frontend
     end
 
     subgraph "API Tier"
@@ -44,11 +46,10 @@ graph TD
         C[Python ML Engine]:::ml
         Dino[DINOv2 Embeddings]:::ml
         Yolo[YOLOv8s Object Detection]:::ml
-        Hungarian[Matcher]:::ml
+        ThreePhase[Three-Phase Matcher]:::ml
     end
 
     %% Relationships
-    Device -->|Captures Image| A
     A -->|Multipart Upload| B
     B -->|Saves Metadata| DB
     B -->|Saves Images| Files
@@ -56,7 +57,7 @@ graph TD
     
     C -->|Detects bounding boxes| Yolo
     C -->|Extracts 384d features| Dino
-    C -->|Pairs objects| Hungarian
+    C -->|Pairs objects via Visual/Color/Spatial| ThreePhase
     
     C -->|Returns JSON Report| B
     B -->|Sends Report| A
@@ -87,7 +88,7 @@ sequenceDiagram
     participant DB as SQLite
     participant Python as ML Engine (Python)
 
-    User->>Frontend: Selects Baseline and clicks "Take Photo"
+    User->>Frontend: Selects Baseline and uploads photo
     Frontend->>Backend: POST /api/audits (Multipart Form)
     Backend->>Filesystem: Saves raw Audit Image
     Backend->>DB: Fetches Baseline metadata
@@ -100,8 +101,8 @@ sequenceDiagram
     Note over Python: 2. DINOv2 Extraction
     Python->>Python: Extract 384d embedding per crop
     
-    Note over Python: 3. Heuristic Scoring & Match
-    Python->>Python: Bipartite graph matching
+    Note over Python: 3. Three-Phase Matching
+    Python->>Python: Visual, Color & Spatial Clustering matching
     Python->>Filesystem: Generate visual_report.jpg
     Python-->>Backend: Returns JSON Report (stdout)
     deactivate Python
@@ -167,14 +168,6 @@ npm install
 npm start
 ```
 *(The frontend runs on `http://localhost:4200`)*
-
----
-
-## 📱 Mobile Testing
-To test the app on a mobile device and use the native camera:
-1. Ensure your phone and laptop are on the same Wi-Fi network.
-2. Find your laptop's local IP address (`ipconfig` on Windows or `ifconfig` on Mac).
-3. The frontend is configured to run with `--host 0.0.0.0`, so simply navigate to `http://<YOUR_LOCAL_IP>:4200` on your mobile browser.
 
 ---
 *Built for the future of retail execution.*

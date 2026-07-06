@@ -127,9 +127,7 @@ export const runMLAudit = (baselinePath: string, auditPath: string, shelfCapacit
 export interface MLCatalogResult {
   fingerprint: number[];
   color_hist?: number[];
-  aspect_ratio?: number;
   orb_descriptors?: any[];
-  ocr_text?: string;
   error?: string;
 }
 

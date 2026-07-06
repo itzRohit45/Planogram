@@ -70,18 +70,11 @@ def extract_fingerprint(image_path):
         features = F.normalize(features, p=2, dim=1)
 
 
-    # 1. Aspect Ratio
-    ch, cw = crop_img.shape[:2]
-    aspect_ratio = round(cw / float(ch), 4) if ch > 0 else 0.0
-
     # 2. ORB Descriptors
     orb = cv2.ORB_create(nfeatures=500)
     gray_crop = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
     kp, des = orb.detectAndCompute(gray_crop, None)
     orb_descriptors = des.tolist() if des is not None else []
-
-    # 3. OCR Text removed
-    ocr_text = ""
 
     # Compute color histogram on the center 60% to avoid background pixels
     cy1, cy2 = int(ch * 0.2), int(ch * 0.8)
@@ -97,7 +90,7 @@ def extract_fingerprint(image_path):
     cv2.normalize(hist, hist)
     color_hist = hist.flatten().tolist()
 
-    return features[0].tolist(), color_hist, aspect_ratio, orb_descriptors, ocr_text
+    return features[0].tolist(), color_hist, orb_descriptors
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -105,13 +98,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        fingerprint, color_hist, aspect_ratio, orb_descriptors, ocr_text = extract_fingerprint(args.image)
+        fingerprint, color_hist, orb_descriptors = extract_fingerprint(args.image)
         print(json.dumps({
             "fingerprint": fingerprint, 
             "color_hist": color_hist,
-            "aspect_ratio": aspect_ratio,
-            "orb_descriptors": orb_descriptors,
-            "ocr_text": ocr_text
+            "orb_descriptors": orb_descriptors
         }))
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)

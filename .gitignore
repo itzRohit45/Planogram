@@ -8,3 +8,4 @@ dist/
 .angular/
 database.sqlite
 .DS_Store
+mobileapp/
