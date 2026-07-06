@@ -19,6 +19,51 @@ Planogram is an intelligent, AI-powered computer vision platform designed to aut
 
 ---
 
+## 🧠 The Three-Phase Matching Algorithm
+
+To accurately determine if a product on a shelf matches a product in the baseline planogram, Planogram employs a sophisticated Three-Phase Matching heuristic engine:
+
+```mermaid
+graph TD
+    %% Define Styles
+    classDef phase fill:#f3f4f6,stroke:#9ca3af,stroke-width:2px,color:#111827,font-weight:bold;
+    classDef step fill:#bfdbfe,stroke:#3b82f6,stroke-width:2px,color:#1e3a8a,font-weight:bold;
+    classDef success fill:#bbf7d0,stroke:#22c55e,stroke-width:2px,color:#14532d,font-weight:bold;
+
+    A[Detected Audit Item] --> Phase1
+    
+    subgraph Phase1 [Phase 1: Spatial Row Clustering]
+        direction TB
+        S1(Extract Y-Center of Bounding Box):::step
+        S2(Cluster into Shelf Levels):::step
+        S1 --> S2
+    end
+    
+    Phase1 --> Phase2
+    
+    subgraph Phase2 [Phase 2: Visual & Semantic Scoring]
+        direction TB
+        V1(DINOv2 Cosine Similarity):::step
+        V2(ORB Descriptor Matching):::step
+        V1 --> V2
+    end
+    
+    Phase2 --> Phase3
+    
+    subgraph Phase3 [Phase 3: Color Disambiguation]
+        direction TB
+        C1(HSV Histogram Bhattacharyya Distance):::step
+        C1 --> C2(Final Weighted Score):::step
+    end
+    
+    Phase3 --> Matcher
+    
+    Matcher{Row-wise Bipartite Matching}:::step
+    Matcher -->|Assigns highest score| Final(Match: Correct / Wrong / Missing):::success
+```
+
+---
+
 ## 🏗 System Architecture
 
 Planogram is designed using a modern microservice-style architecture. This allows the compute-heavy Python machine learning tasks to be decoupled from the real-time Node.js backend.
