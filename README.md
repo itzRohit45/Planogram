@@ -10,6 +10,7 @@ Planogram is an intelligent, AI-powered computer vision platform designed to aut
 
 - **Advanced Visual Fingerprinting**: Utilizes Meta's **DINOv2** self-supervised vision transformer to extract 384-dimensional semantic embeddings from product crops.
 - **Intelligent Object Detection**: Powered by **YOLOv8s** for real-time bounding box detection of products on shelves.
+- **Automated Product Cataloging**: Seamlessly digitize and catalog new product SKUs using the underlying catalog engine to pre-compute structural (DINOv2), color (HSV), and physical (ORB) signatures, storing them efficiently in the database for instant recall.
 - **Three-Phase Matching Algorithm**: Uses a sophisticated heuristic engine that combines:
   1. **Visual Similarity (DINOv2 + ORB)**: Matches high-level semantic embeddings and low-level keypoint features.
   2. **Color Similarity (HSV Histograms)**: Matches color profiles to disambiguate visually similar products.
