@@ -81,3 +81,19 @@
     </div>
   </div>
 </div>
+
+<!-- Modal moved outside to fix positioning context -->
+<div *ngIf="selectedBaseline" class="modal-backdrop" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); z-index: 99999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);" (click)="closeBaselineView()">
+  <div class="glass-card animate-fade-in" style="width: 95%; max-width: 1200px; max-height: 95vh; overflow: auto; padding: 24px; position: relative; margin: 0 auto;" (click)="$event.stopPropagation()">
+    <button class="btn-icon" style="position: absolute; top: 16px; right: 16px; background: rgba(255,255,255,0.15); border: none; border-radius: 50%; padding: 8px; cursor: pointer; color: white; transition: background 0.2s; z-index: 10;" (click)="closeBaselineView()" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+    </button>
+    <h3 style="margin-top: 0; margin-bottom: 20px; font-size: 1.5rem;">Baseline: {{selectedBaseline.name || 'Baseline #' + selectedBaseline.id}}</h3>
+    <div style="width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid rgba(255,255,255,0.2); background: #000; display: flex; justify-content: center; align-items: center;">
+      <img [src]="selectedBaseline.visual_report_path ? (api.baseUrl + '/reports/' + selectedBaseline.visual_report_path) : (api.baseUrl + '/uploads/baseline/' + (selectedBaseline.image_path.split('/').pop() || selectedBaseline.image_path.split('\\\\').pop()))" style="max-width: 100%; max-height: 75vh; object-fit: contain; display: block;" />
+    </div>
+    <p style="text-align: center; color: var(--text-muted); margin-top: 16px; font-size: 1em; font-weight: 500;">
+      {{selectedBaseline.visual_report_path ? 'Annotated baseline image showing detected bounding boxes and identified product names.' : 'Showing original baseline image (Upload a NEW baseline to see AI bounding boxes).'}}
+    </p>
+  </div>
+</div>

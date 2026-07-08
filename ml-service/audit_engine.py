@@ -509,7 +509,42 @@ def run_baseline(image_path):
         catalog = load_catalog()
         boxes, w, h = detect_products(image_path, catalog)
         capacity = len(boxes)
-        print(json.dumps({"shelf_capacity": capacity}))
+        
+        # Draw bounding boxes and save a visual report for the baseline!
+        timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
+        reports_dir = os.path.join(os.path.dirname(__file__), '../reports')
+        if not os.path.exists(reports_dir):
+            os.makedirs(reports_dir)
+            
+        vis_img = cv2.imread(image_path)
+        for b in boxes:
+            x1, y1, x2, y2 = b['x1'], b['y1'], b['x2'], b['y2']
+            label = b['identity'] if b['identity'] else "UNKNOWN"
+            
+            # Draw blue box for baseline
+            color = (255, 100, 0)
+            cv2.rectangle(vis_img, (x1, y1), (x2, y2), color, 3)
+            
+            # Enhanced label drawing with background
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.8
+            thickness = 2
+            (text_w, text_h), _ = cv2.getTextSize(label, font, font_scale, thickness)
+            
+            # Draw filled rectangle for text background
+            cv2.rectangle(vis_img, (x1, max(0, y1 - text_h - 10)), (x1 + text_w + 10, y1), color, -1)
+            # Draw white text
+            cv2.putText(vis_img, label, (x1 + 5, max(15, y1 - 5)), font, font_scale, (255, 255, 255), thickness)
+
+        vis_filename = f"baseline_vis_{timestamp}.jpg"
+        vis_path = os.path.join(reports_dir, vis_filename)
+        cv2.imwrite(vis_path, vis_img)
+        
+        print(json.dumps({
+            "shelf_capacity": capacity,
+            "visual_report_path": vis_path,
+            "boxes": boxes
+        }))
     except Exception as e:
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         sys.exit(1)

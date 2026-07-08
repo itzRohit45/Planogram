@@ -47,6 +47,8 @@ export class DashboardComponent implements OnInit {
     }
   }
 
+  selectedBaseline: any = null;
+
   deleteAudit(event: Event, id: number) {
     event.stopPropagation();
     if (confirm('Are you sure you want to delete this audit?')) {
@@ -55,9 +57,11 @@ export class DashboardComponent implements OnInit {
   }
 
   viewBaseline(baseline: any) {
-    // Currently no standalone route for baseline view in the router config,
-    // but we can route to baseline or just show a modal. We will route to baseline upload for now.
-    // Ideally we would have a dedicated view.
+    this.selectedBaseline = baseline;
+  }
+
+  closeBaselineView() {
+    this.selectedBaseline = null;
   }
 
   viewReport(audit: any) {

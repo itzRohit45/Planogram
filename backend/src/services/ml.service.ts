@@ -10,6 +10,8 @@ const pythonExecutable = process.env.PYTHON_PATH || (isWindows ? 'python' : 'pyt
 
 export interface MLBaselineResult {
   shelf_capacity: number;
+  visual_report_path?: string;
+  boxes?: any[];
   error?: string;
 }
 
@@ -40,7 +42,7 @@ export const runMLBaseline = (imagePath: string): Promise<MLBaselineResult> => {
     process.on('close', (code) => {
       if (code !== 0 && !outputData.includes('{')) {
         console.error('Python Error:', errorData);
-        return resolve({ shelf_capacity: 0, error: 'Failed to process baseline image' });
+        return resolve({ shelf_capacity: 0, error: 'Python Error: ' + errorData });
       }
 
       try {

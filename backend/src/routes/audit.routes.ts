@@ -70,9 +70,14 @@ router.post('/baseline/upload', upload.single('image'), async (req, res) => {
     const shelfCapacity = mlResult.shelf_capacity;
 
     // Save to DB
+    let visPath = mlResult.visual_report_path ? mlResult.visual_report_path.replace(/\\/g, '/') : null;
+    if (visPath) {
+      visPath = visPath.split('/').pop() || null; // Store only filename for easy serving
+    }
+    
     db.run(
-      `INSERT INTO baselines (name, image_path, shelf_capacity) VALUES (?, ?, ?)`,
-      [name, imagePath, shelfCapacity],
+      `INSERT INTO baselines (name, image_path, visual_report_path, shelf_capacity) VALUES (?, ?, ?, ?)`,
+      [name, imagePath, visPath, shelfCapacity],
       function(err) {
         if (err) {
           console.error(err);
@@ -83,6 +88,8 @@ router.post('/baseline/upload', upload.single('image'), async (req, res) => {
           name: name,
           image_path: imagePath,
           shelf_capacity: shelfCapacity,
+          visual_report_path: mlResult.visual_report_path || null,
+          boxes: mlResult.boxes || [],
           message: 'Baseline uploaded and processed successfully'
         });
       }

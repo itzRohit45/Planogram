@@ -20,6 +20,7 @@ function initializeDatabase() {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
         image_path TEXT NOT NULL,
+        visual_report_path TEXT,
         shelf_capacity INTEGER,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
